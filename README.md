@@ -3,8 +3,9 @@
 > Binance USDT-M Futures 多虚拟仓位聚合终端 —— 在同一交易对上维护多个独立"虚拟仓位"，以完整的 Hedge Mode 映射与成交归因引擎，复刻并扩展 Binance 合约交易体验。
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
-[![Status: WIP](https://img.shields.io/badge/Status-WIP-orange.svg)]()
+[![Status: v0.1 Built](https://img.shields.io/badge/Status-v0.1%20Built-brightgreen.svg)]()
 [![Target: BTC/ETH](https://img.shields.io/badge/Instruments-BTCUSDT%20%7C%20ETHUSDT-blue.svg)]()
+[![Tests: 11/11](https://img.shields.io/badge/Tests-11%2F11%20passing-brightgreen.svg)]()
 
 ---
 
@@ -137,14 +138,15 @@ BTCUSDT SHORT qty=1.5    ←───────── VP "Hedge-1"      qty=1.
 
 | 模块 | 功能 | 状态 |
 |------|------|------|
-| 虚拟仓位管理 | 创建 / 删除虚拟仓位，绑定 symbol + positionSide | 规划中 |
-| 开单 | Market / Limit，指定虚拟仓位 | 规划中 |
-| 挂单管理 | Open Orders 列表，按虚拟仓位筛选，撤单，cancel+new 改单 | 规划中 |
-| TP/SL | 每个虚拟仓位独立设置单档 TP + SL，默认 TP=LAST / SL=MARK，cancel+create 同步 | 规划中 |
-| 仓位平仓 | 市价/限价，25/50/75/100% 或自定义数量，reduceOnly | 规划中 |
-| PnL 归因 | 加权均价（WAC）、浮动 PnL（Mark Price）、已实现 PnL（Fill 归因） | 规划中 |
-| 实时数据 | Binance WS 用户流 + 行情流，后端统一推送前端 | 规划中 |
-| 对账 / 重建 | 外部持仓与 VP 总量对比、差额分配、UNASSIGNED 承接 | 规划中 |
+| 虚拟仓位管理 | 创建 / 删除虚拟仓位，绑定 symbol + positionSide | ✅ 已完成 |
+| 开单 | Market / Limit，指定虚拟仓位 | ✅ 已完成 |
+| 挂单管理 | Open Orders 列表，按虚拟仓位筛选，撤单 | ✅ 已完成 |
+| TP/SL | 每个虚拟仓位独立设置单档 TP + SL，默认 TP=LAST / SL=MARK，cancel+create 同步 | ✅ 已完成 |
+| 仓位平仓 | 市价/限价，25/50/75/100% 或自定义数量，reduceOnly | ✅ 已完成 |
+| PnL 归因 | 加权均价（WAC）、浮动 PnL（Mark Price）、已实现 PnL（Fill 归因） | ✅ 已完成 |
+| 实时数据 | Binance WS 用户流 + 行情流，后端统一推送前端 | ✅ 已完成 |
+| 对账 / 重建 | 外部持仓与 VP 总量对比、差额分配、UNASSIGNED 承接 | ✅ 已完成 |
+| 挂单改单 | cancel+new 方式改单 UI | 🔜 v0.2 |
 
 ### MVP 明确不做
 
@@ -155,57 +157,72 @@ BTCUSDT SHORT qty=1.5    ←───────── VP "Hedge-1"      qty=1.
 
 ---
 
-## 技术栈（规划）
+## 技术栈
 
-| 层级 | 候选方案 | 说明 |
-|------|----------|------|
-| 后端运行时 | Node.js (TypeScript) | 异步 I/O 适合 WS 高并发 |
-| 后端框架 | Fastify / Express | REST API + WS 混合服务 |
-| 前端框架 | React + TypeScript | SPA，组件化 |
-| 状态管理 | Zustand / Redux Toolkit | 轻量实时状态 |
-| 图表 | TradingView Lightweight Charts | K 线 / 深度图嵌入 |
-| Binance SDK | binance-connector / 自封装 | REST + WS 用户流 |
-| 持久化 | SQLite（开发）/ PostgreSQL（生产）| 虚拟仓位账本持久化 |
-| 容器化 | Docker + docker-compose | 本地一键启动 |
-
-> 技术栈在首次开发启动前可调整。
+| 层级 | 选型 | 说明 |
+|------|------|------|
+| 后端运行时 | Node.js 22 (TypeScript) | 异步 I/O 适合 WS 高并发 |
+| 后端框架 | **Fastify 5** | REST API + WS 混合服务（`@fastify/websocket`） |
+| 前端框架 | **React 18 + TypeScript** | SPA，Vite 构建 |
+| 状态管理 | **Zustand 5** | 轻量实时状态 |
+| 图表 | TradingView Lightweight Charts | K 线嵌入（v0.3 接入） |
+| Binance 连接 | 自封装（axios + ws） | REST 签名 + WS 用户流 + 行情流 |
+| 持久化 | **SQLite**（better-sqlite3）| 虚拟仓位账本持久化，WAL 模式 |
+| 包管理 | **pnpm 10** monorepo | workspace 管理 backend / frontend |
+| 容器化 | Docker + docker-compose | 一键启动（nginx 反向代理） |
 
 ---
 
-## 项目结构（规划）
+## 项目结构
 
 ```
 Trading-HedgeStack/
 ├── packages/
-│   ├── backend/                  # 后端服务
+│   ├── backend/                        # 后端服务
 │   │   ├── src/
-│   │   │   ├── api/              # REST 路由 (/v1/...)
-│   │   │   ├── ws/               # WebSocket Gateway（推送前端）
-│   │   │   ├── binance/          # Binance REST + WS 连接器
-│   │   │   ├── engine/           # 核心引擎
-│   │   │   │   ├── attribution/  # Fill 成交归因
-│   │   │   │   ├── tpsl/         # TP/SL 生命周期管理
-│   │   │   │   └── reconcile/    # 对账与重建
-│   │   │   ├── store/            # 内存状态 + 持久化层
-│   │   │   └── config/           # 环境变量 / 常量
-│   │   ├── tests/
+│   │   │   ├── api/routes.ts           # REST 路由 (/v1/...)
+│   │   │   ├── ws/gateway.ts           # WebSocket Gateway（推送前端）
+│   │   │   ├── binance/
+│   │   │   │   ├── rest.ts             # Binance REST（HMAC 签名）
+│   │   │   │   └── ws.ts               # Binance WS（用户流 + 行情流）
+│   │   │   ├── engine/
+│   │   │   │   ├── attribution/
+│   │   │   │   │   ├── index.ts        # clientOrderId 编解码 + Fill 归因
+│   │   │   │   │   └── wac.ts          # WAC 计算引擎
+│   │   │   │   ├── tpsl/index.ts       # TP/SL 生命周期（cancel+create）
+│   │   │   │   └── reconcile/index.ts  # 一致性检测 + 重建
+│   │   │   ├── store/
+│   │   │   │   ├── types.ts            # 所有核心数据接口
+│   │   │   │   ├── db.ts               # SQLite 持久化（better-sqlite3）
+│   │   │   │   └── state.ts            # 内存状态 + DB 初始化
+│   │   │   ├── config/env.ts           # 环境变量
+│   │   │   └── index.ts                # 启动入口
+│   │   ├── tests/unit/                 # 单元测试（Vitest，11 tests）
+│   │   ├── Dockerfile
 │   │   └── package.json
-│   └── frontend/                 # 前端 SPA
+│   └── frontend/                       # 前端 SPA
 │       ├── src/
 │       │   ├── components/
-│       │   │   ├── OrderPanel/   # 下单面板
-│       │   │   ├── Positions/    # 虚拟仓位列表
-│       │   │   ├── OpenOrders/   # 挂单管理
-│       │   │   └── TpSlModal/    # TP/SL 设置弹窗
-│       │   ├── store/            # 前端状态（Zustand 等）
-│       │   ├── ws/               # 后端 WS 客户端
-│       │   └── utils/
-│       ├── public/
+│       │   │   ├── OrderPanel/         # 下单面板（Market/Limit + VP 选择器）
+│       │   │   ├── Positions/          # 虚拟仓位行（PnL + 平仓 + TP/SL）
+│       │   │   ├── OpenOrders/         # 挂单管理（VP 筛选 + 撤单）
+│       │   │   ├── TpSlModal/          # TP/SL 设置弹窗
+│       │   │   └── ReconcilePanel/     # 对账面板（差额分配）
+│       │   ├── store/index.ts          # Zustand 全局状态
+│       │   ├── ws/client.ts            # 后端 WS 客户端（自动重连）
+│       │   ├── utils/
+│       │   │   ├── api.ts              # REST API 封装
+│       │   │   └── format.ts           # 价格 / PnL 格式化
+│       │   ├── types/index.ts          # 前端类型定义（与后端镜像）
+│       │   └── App.tsx                 # 根组件（布局 + 标签页）
+│       ├── Dockerfile
+│       ├── nginx.conf
 │       └── package.json
-├── docs/                         # 详细设计文档
-├── scripts/                      # 开发脚本
 ├── docker-compose.yml
-├── MVP（定版）.md                 # 原始需求规格
+├── pnpm-workspace.yaml
+├── tsconfig.base.json
+├── .env.example
+├── MVP（定版）.md                       # 原始需求规格
 ├── README.md
 └── LICENSE
 ```
@@ -225,8 +242,6 @@ Trading-HedgeStack/
 ---
 
 ## 快速开始
-
-> ⚠️ 项目正在开发中，以下为规划阶段的启动流程，待代码框架初始化后更新。
 
 ### 1. 克隆仓库
 
@@ -583,17 +598,18 @@ VP-{vpShortId}-{ts}-{nonce}
 
 ## 开发指南
 
-### 本地开发启动（规划）
+### 本地开发启动
 
 ```bash
 # 安装依赖
 pnpm install
 
-# 后端（监视模式）
-pnpm --filter backend dev
+# 同时启动后端（tsx watch）+ 前端（Vite）
+pnpm dev
 
-# 前端（Vite 开发服务器）
-pnpm --filter frontend dev
+# 或分别启动
+pnpm --filter @hedgestack/backend dev   # http://localhost:3001
+pnpm --filter @hedgestack/frontend dev  # http://localhost:5173
 ```
 
 ### 代码规范
@@ -604,16 +620,15 @@ pnpm --filter frontend dev
 
 ### 测试策略
 
-| 层级 | 工具 | 覆盖重点 |
-|------|------|----------|
-| 单元测试 | Vitest | WAC 计算逻辑、归因引擎、clientOrderId 解析 |
-| 集成测试 | Vitest + 模拟 WS | Fill 事件 → VP 账本更新链路 |
-| E2E 测试 | Playwright | 核心下单 / 平仓 / TP/SL 操作流程 |
+| 层级 | 工具 | 覆盖重点 | 状态 |
+|------|------|----------|------|
+| 单元测试 | Vitest | WAC 计算逻辑、`clientOrderId` 编解码 | ✅ 11 tests passing |
+| 集成测试 | Vitest + 模拟 WS | Fill 事件 → VP 账本更新链路 | 🔜 v0.2 |
+| E2E 测试 | Playwright | 核心下单 / 平仓 / TP/SL 操作流程 | 🔜 v0.3 |
 
 ```bash
 pnpm test          # 运行所有测试
-pnpm test:unit     # 仅单元测试
-pnpm test:e2e      # E2E（需启动服务）
+pnpm test:unit     # 仅单元测试（packages/backend）
 ```
 
 ### 环境隔离
@@ -625,29 +640,33 @@ pnpm test:e2e      # E2E（需启动服务）
 
 ## 路线图
 
-### v0.1 — 骨架与核心引擎
+### v0.1 — 骨架与核心引擎 ✅ 已完成
 
-- [ ] 项目工程化初始化（monorepo / 构建 / lint / CI）
-- [ ] Binance 连接器（REST + WS 用户流 + 行情流）
-- [ ] VP 数据结构与 WAC 引擎
-- [ ] `clientOrderId` 编码与成交归因
-- [ ] 基础 REST API（`/v1/state` / `/v1/orders` / `/v1/virtual-positions`）
+- [x] 项目工程化初始化（pnpm monorepo / TypeScript / Prettier / Docker）
+- [x] Binance 连接器（REST HMAC 签名 + WS 用户流 + markPrice 行情流）
+- [x] VP 数据结构与 WAC 引擎（加仓均价更新 / 减仓 realizedPnL）
+- [x] `clientOrderId` 编码（`VP-{id6}-{ts}-{nonce}`）与成交归因引擎
+- [x] SQLite 持久化（WAL 模式，VP / Order / Fill / clientOrderId 映射表）
+- [x] 完整 REST API（7 个端点，含 TP/SL、平仓、对账）
+- [x] TP/SL 生命周期管理（cancel+create，SYNCING→OK 状态机）
+- [x] 对账 / 重建引擎（一致性检测 + UNASSIGNED VP 承接）
+- [x] 后端 WS 网关（广播 7 类事件，连接时推送 STATE_SNAPSHOT）
+- [x] 前端 SPA：下单面板 / Positions / Open Orders / TP-SL 弹窗 / Reconcile 面板
+- [x] 单元测试 11/11 通过（WAC 引擎 + clientOrderId 编解码）
 
-### v0.2 — 完整 MVP 功能
+### v0.2 — 稳定性与交互打磨
 
-- [ ] TP/SL 生命周期管理（cancel+create 同步）
-- [ ] 平仓操作（市价/限价/比例）
-- [ ] 对账与重建逻辑
-- [ ] 前端 SPA 初版（下单面板 + Positions + Open Orders）
-- [ ] 后端 → 前端 WS 推送全事件
+- [ ] TP/SL 触发后自动从 VP 账本清除（`handleTpSlFilled` 集成）
+- [ ] 挂单改单 UI（cancel+new，前端交互层）
+- [ ] WS 断线期间成交的回补（REST 补单查询）
+- [ ] 集成测试：Fill 事件 → VP 账本更新端到端链路
 
-### v0.3 — 体验打磨
+### v0.3 — 图表与体验
 
-- [ ] 前端实时响应（< 150ms 本地感知）
-- [ ] WS 断线重连与"同步中"状态指示
-- [ ] TradingView 图表嵌入
-- [ ] Order History / Trade History 视图
-- [ ] Docker 一键部署
+- [ ] TradingView Lightweight Charts 嵌入（K 线 + 标记价格线）
+- [ ] 前端实时响应优化（< 150ms 本地感知）
+- [ ] Order History 完整视图（分页 / 筛选）
+- [ ] E2E 测试（Playwright）
 
 ### 后续（v1.0+）
 
