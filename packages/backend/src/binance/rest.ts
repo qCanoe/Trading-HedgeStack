@@ -97,18 +97,25 @@ export class BinanceRestClient {
   // ─── Orders ───────────────────────────────────────────────────────────
 
   async placeOrder(params: PlaceOrderParams): Promise<BinanceOrderResponse> {
+    const normalizedType = params.type.toUpperCase();
     const body: Record<string, string | number | boolean> = {
       symbol: params.symbol,
       side: params.side,
       positionSide: params.positionSide,
-      type: params.type,
+      type: normalizedType,
       timestamp: Date.now(),
     };
     if (params.quantity) body.quantity = params.quantity;
-    if (params.price) body.price = params.price;
-    if (params.stopPrice) body.stopPrice = params.stopPrice;
+    if (params.price && ['LIMIT', 'STOP'].includes(normalizedType)) {
+      body.price = params.price;
+    }
+    if (params.stopPrice && ['STOP', 'STOP_MARKET', 'TAKE_PROFIT', 'TAKE_PROFIT_MARKET'].includes(normalizedType)) {
+      body.stopPrice = params.stopPrice;
+    }
     if (params.reduceOnly !== undefined) body.reduceOnly = params.reduceOnly;
-    if (params.timeInForce) body.timeInForce = params.timeInForce;
+    if (params.timeInForce && ['LIMIT', 'STOP', 'TAKE_PROFIT'].includes(normalizedType)) {
+      body.timeInForce = params.timeInForce;
+    }
     if (params.workingType) body.workingType = params.workingType;
     if (params.newClientOrderId) body.newClientOrderId = params.newClientOrderId;
     if (params.closePosition) body.closePosition = params.closePosition;

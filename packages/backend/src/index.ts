@@ -9,6 +9,8 @@ import { registerRoutes } from './api/routes.js';
 import { startUserDataStream, startMarketStream } from './binance/ws.js';
 import { BinanceClientPool } from './binance/pool.js';
 import { loadAccountConfigs } from './accounts/registry.js';
+import { setOpsAlertLogger } from './ops/metrics.js';
+import { runStartupHealthChecks } from './ops/health.js';
 import { mkdirSync } from 'fs';
 import { dirname } from 'path';
 
@@ -36,9 +38,17 @@ async function bootstrap(): Promise<void> {
 
   // Routes
   const accountConfigs = loadAccountConfigs();
+  const startupHealth = runStartupHealthChecks(accountConfigs);
   const pool = new BinanceClientPool(accountConfigs);
   registerWsGateway(fastify);
   registerRoutes(fastify, pool);
+  setOpsAlertLogger((alert) => {
+    fastify.log.warn({ tag: 'OPS_ALERT', ...alert }, 'OPS_ALERT');
+  });
+
+  if (startupHealth.status !== 'OK') {
+    fastify.log.warn({ startupHealth }, 'Startup health report is not OK');
+  }
 
   // Start server
   await fastify.listen({ port: config.port, host: '0.0.0.0' });

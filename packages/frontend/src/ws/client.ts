@@ -2,10 +2,23 @@
  * Backend WebSocket client.
  * Connects to ws://backend/ws and dispatches events to the Zustand store.
  */
-import type { WsEvent, StateSnapshot, VirtualPosition, OrderRecord, FillRecord, ExternalPosition, MarketTick, ConsistencyStatus } from '../types/index.js';
+import type {
+  WsEvent,
+  StateSnapshot,
+  VirtualPosition,
+  OrderRecord,
+  FillRecord,
+  ExternalPosition,
+  MarketTick,
+  ConsistencyStatus,
+  AccountStreamStatus,
+} from '../types/index.js';
 import { useStore } from '../store/index.js';
 
-const WS_URL = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`;
+function resolveWsUrl(): string {
+  if (typeof location === 'undefined') return 'ws://localhost/ws';
+  return `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`;
+}
 
 let ws: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -14,7 +27,7 @@ let reconnectDelay = 1000;
 export function connectWs(): void {
   if (ws && ws.readyState === WebSocket.OPEN) return;
 
-  ws = new WebSocket(WS_URL);
+  ws = new WebSocket(resolveWsUrl());
 
   ws.onopen = () => {
     console.log('[WS] Connected');
@@ -54,6 +67,7 @@ function handleEvent(event: WsEvent): void {
       store.setRecentFills(snap.recent_fills);
       store.setExternalPositions(snap.external_positions);
       store.setMarketTicks(snap.market);
+      store.applyAccountStatuses(snap.accounts_status ?? []);
       store.setConsistencyStatuses(snap.consistency ?? []);
       break;
     }
@@ -68,6 +82,9 @@ function handleEvent(event: WsEvent): void {
       break;
     case 'EXTERNAL_POSITION_UPDATE':
       store.upsertExternalPosition(event.payload as ExternalPosition);
+      break;
+    case 'ACCOUNT_STREAM_STATUS':
+      store.applyAccountStatus(event.payload as AccountStreamStatus);
       break;
     case 'MARKET_TICK':
       store.updateMarketTick(event.payload as MarketTick);

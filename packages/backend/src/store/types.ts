@@ -9,6 +9,17 @@ export interface AccountInfo {
   testnet: boolean;
   enabled: boolean;
   ws_status: 'CONNECTED' | 'DISCONNECTED' | 'UNKNOWN';
+  last_error: string | null;
+  last_connected_at: number | null;
+}
+
+export interface AccountStreamStatus {
+  account_id: string;
+  ws_status: 'CONNECTED' | 'DISCONNECTED' | 'UNKNOWN';
+  reason: string | null;
+  last_error: string | null;
+  last_connected_at: number | null;
+  updated_at: number;
 }
 
 // ─── Virtual Position ──────────────────────────────────────────────────────
@@ -103,6 +114,7 @@ export type EventType =
   | 'FILL'
   | 'VIRTUAL_POSITION_UPDATE'
   | 'EXTERNAL_POSITION_UPDATE'
+  | 'ACCOUNT_STREAM_STATUS'
   | 'TPSL_SYNC_STATUS'
   | 'CONSISTENCY_STATUS'
   | 'MARKET_TICK'
@@ -139,12 +151,32 @@ export interface PlaceOrderRequest {
   symbol: Symbol;
   positionSide: PositionSide;
   side: OrderSide;
-  type: OrderType;
+  type: Extract<OrderType, 'MARKET' | 'LIMIT' | 'STOP' | 'STOP_MARKET'>;
   qty: string;
   price?: string;
   stopPrice?: string;
+  triggerPriceType?: 'LAST_PRICE' | 'MARK_PRICE';
   reduceOnly?: boolean;
   timeInForce?: TimeInForce;
+}
+
+export interface AmendOrderRequest {
+  account_id?: string;
+  symbol: Symbol;
+  virtual_position_id?: string;
+  type: Extract<OrderType, 'LIMIT' | 'STOP' | 'STOP_MARKET'>;
+  qty: string;
+  price?: string;
+  stopPrice?: string;
+  triggerPriceType?: 'LAST_PRICE' | 'MARK_PRICE';
+  timeInForce?: TimeInForce;
+}
+
+export interface AmendOrderResponse {
+  old_order_id: string;
+  new_order_id: string;
+  clientOrderId: string;
+  status: string;
 }
 
 export interface ClosePositionRequest {
@@ -162,6 +194,7 @@ export interface SetTpSlRequest {
   sl_price?: string | null;
   sl_trigger_type?: 'LAST_PRICE' | 'MARK_PRICE';
   qty?: string;
+  percent?: number;
 }
 
 export interface ReconcileAssignment {
@@ -189,6 +222,7 @@ export interface StateSnapshot {
   open_orders: OrderRecord[];
   recent_fills: FillRecord[];
   market: Record<string, MarketTick>;
+  accounts_status: AccountStreamStatus[];
   consistency: ConsistencyStatus[];
   reconcile: Record<string, Record<string, 'OK' | 'MISMATCH'>>;
 }

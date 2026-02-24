@@ -18,42 +18,50 @@ export default function ReconcilePanel() {
   const activeAccountId = useStore((s) => s.activeAccountId);
 
   const mismatches = Object.values(consistencyStatuses).filter(
-    (s) => s.status === 'MISMATCH' && (activeAccountId === 'ALL' || s.account_id === activeAccountId)
+    (s) =>
+      s.status === 'MISMATCH' &&
+      (activeAccountId === 'ALL' || s.account_id === activeAccountId),
   );
 
   if (mismatches.length === 0) return null;
 
   return (
-    <div
-      style={{
-        background: '#1a0f0f',
-        border: '1px solid #f6465d',
-        borderRadius: 4,
-        padding: 16,
-        margin: '8px 0',
-      }}
-    >
-      <div style={{ color: '#f6465d', fontWeight: 600, marginBottom: 12 }}>
-        ⚠ 发现仓位对账不一致 ({mismatches.length} 项)
+    <div style={{
+      borderBottom: '1px solid rgba(240,48,88,0.18)',
+      background: 'rgba(240,48,88,0.03)',
+      padding: '10px 16px',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+        <span style={{
+          width: 7, height: 7, borderRadius: '50%', background: 'var(--red)', display: 'inline-block',
+          boxShadow: '0 0 8px var(--red-glow)',
+          animation: 'pulse-dot 2s ease-in-out infinite',
+        }} />
+        <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--red)', letterSpacing: '0.05em' }}>
+          POSITION MISMATCH — {mismatches.length} 项对账不一致
+        </span>
       </div>
-      {mismatches.map((mismatch) => (
-        <MismatchItem
-          key={`${mismatch.account_id}_${mismatch.symbol}_${mismatch.positionSide}`}
-          accountId={mismatch.account_id}
-          symbol={mismatch.symbol}
-          positionSide={mismatch.positionSide as 'LONG' | 'SHORT'}
-          externalQty={mismatch.external_qty}
-          virtualQty={mismatch.virtual_qty}
-          vps={virtualPositions.filter(
-            (v) =>
-              v.account_id === mismatch.account_id
-              && v.symbol === mismatch.symbol
-              && v.positionSide === mismatch.positionSide
-          )}
-          readOnly={activeAccountId === 'ALL'}
-          onReconciled={(updated) => updated.forEach(upsertVirtualPosition)}
-        />
-      ))}
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {mismatches.map((mismatch) => (
+          <MismatchItem
+            key={`${mismatch.account_id}_${mismatch.symbol}_${mismatch.positionSide}`}
+            accountId={mismatch.account_id}
+            symbol={mismatch.symbol}
+            positionSide={mismatch.positionSide as 'LONG' | 'SHORT'}
+            externalQty={mismatch.external_qty}
+            virtualQty={mismatch.virtual_qty}
+            vps={virtualPositions.filter(
+              (v) =>
+                v.account_id === mismatch.account_id &&
+                v.symbol === mismatch.symbol &&
+                v.positionSide === mismatch.positionSide,
+            )}
+            readOnly={activeAccountId === 'ALL'}
+            onReconciled={(updated) => updated.forEach(upsertVirtualPosition)}
+          />
+        ))}
+      </div>
     </div>
   );
 }
@@ -70,23 +78,17 @@ interface MismatchItemProps {
 }
 
 function MismatchItem({
-  accountId,
-  symbol,
-  positionSide,
-  externalQty,
-  virtualQty,
-  vps,
-  readOnly,
-  onReconciled,
+  accountId, symbol, positionSide, externalQty, virtualQty, vps, readOnly, onReconciled,
 }: MismatchItemProps) {
   const [assignments, setAssignments] = useState<Record<string, string>>(
-    Object.fromEntries(vps.map((v) => [v.id, v.net_qty]))
+    Object.fromEntries(vps.map((v) => [v.id, v.net_qty])),
   );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   const assignedTotal = Object.values(assignments).reduce((sum, v) => sum + parseFloat(v || '0'), 0);
   const remainder = parseFloat(externalQty) - assignedTotal;
+  const isLong = positionSide === 'LONG';
 
   async function handleReconcile() {
     setLoading(true);
@@ -106,48 +108,67 @@ function MismatchItem({
   }
 
   return (
-    <div style={{ marginBottom: 12 }}>
-      <div style={{ color: '#eaecef', fontSize: 13, marginBottom: 6 }}>
-        <strong>{accountId} / {symbol} {positionSide}</strong>
-        <span style={{ color: '#848e9c', marginLeft: 8 }}>
-          交易所: {externalQty} | 系统: {virtualQty}
+    <div style={{
+      background: 'var(--bg-panel)',
+      border: '1px solid var(--border-mid)',
+      borderRadius: 'var(--radius)',
+      padding: '10px 12px',
+      transition: 'border-color var(--t-fast)',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 600 }}>
+          {accountId} / {symbol}
+        </span>
+        <span
+          className={isLong ? 'hl-side-long' : 'hl-side-short'}
+          style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.04em', padding: '1px 5px' }}
+        >
+          {positionSide}
+        </span>
+        <span style={{ fontSize: 10, color: 'var(--text-2)', fontFamily: 'var(--font-mono)' }}>
+          交易所: <strong style={{ color: 'var(--text-1)' }}>{externalQty}</strong>
+          {' · '}
+          系统: <strong style={{ color: 'var(--text-1)' }}>{virtualQty}</strong>
         </span>
       </div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 6 }}>
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
         {vps.map((vp) => (
-          <div key={vp.id} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ color: '#f0b90b', fontSize: 12 }}>{vp.name}:</span>
+          <div key={vp.id} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+            <span style={{ fontSize: 10, color: 'var(--amber)', fontWeight: 600 }}>{vp.name}</span>
             <input
               type="number"
               step="0.001"
               value={assignments[vp.id] ?? ''}
-              onChange={(e) =>
-                setAssignments((prev) => ({ ...prev, [vp.id]: e.target.value }))
-              }
-              style={{
-                width: 80, background: '#2b3139', border: '1px solid #363c45',
-                borderRadius: 3, color: '#eaecef', padding: '3px 6px', fontSize: 12, outline: 'none',
-              }}
+              onChange={(e) => setAssignments((prev) => ({ ...prev, [vp.id]: e.target.value }))}
+              className="hl-input"
+              style={{ width: 82, padding: '3px 7px', fontSize: 11, fontFamily: 'var(--font-mono)' }}
             />
           </div>
         ))}
       </div>
+
       {remainder > 0.0001 && (
-        <div style={{ color: '#f0b90b', fontSize: 12 }}>
-          差额 {remainder.toFixed(8)} 将进入 UNASSIGNED 仓位
+        <div style={{ fontSize: 10, color: 'var(--amber)', marginBottom: 6, fontFamily: 'var(--font-mono)' }}>
+          差额 {remainder.toFixed(8)} → UNASSIGNED
         </div>
       )}
-      {error && <div style={{ color: '#f6465d', fontSize: 12 }}>{error}</div>}
-      {readOnly && <div style={{ color: '#848e9c', fontSize: 12 }}>All 视图仅浏览，请切换到账户后操作</div>}
+      {error && (
+        <div style={{ fontSize: 10, color: 'var(--red)', marginBottom: 6, background: 'var(--red-dim)', padding: '4px 8px', borderRadius: 'var(--radius-sm)' }}>
+          {error}
+        </div>
+      )}
+      {readOnly && (
+        <div style={{ fontSize: 10, color: 'var(--text-3)', marginBottom: 6 }}>All 视图仅浏览</div>
+      )}
+
       <button
+        className="hl-btn hl-btn-sm hl-btn-accent"
         onClick={handleReconcile}
         disabled={loading || readOnly}
-        style={{
-          marginTop: 8, background: '#f0b90b', color: '#1e2329', border: 'none',
-          borderRadius: 4, padding: '6px 16px', cursor: 'pointer', fontWeight: 600, fontSize: 12,
-        }}
+        style={{ marginTop: 2 }}
       >
-        {loading ? '提交中...' : '确认对账'}
+        {loading ? '提交中…' : '确认对账'}
       </button>
     </div>
   );

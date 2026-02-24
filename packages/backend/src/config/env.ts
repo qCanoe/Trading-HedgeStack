@@ -10,6 +10,13 @@ function optional(name: string, defaultVal: string): string {
   return process.env[name] ?? defaultVal;
 }
 
+function optionalNumber(name: string, defaultVal: number): number {
+  const raw = process.env[name];
+  if (raw === undefined) return defaultVal;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : defaultVal;
+}
+
 export const config = {
   binance: {
     apiKey: required('BINANCE_API_KEY'),
@@ -21,6 +28,31 @@ export const config = {
   port: parseInt(optional('PORT', '3001'), 10),
   dbPath: optional('DB_PATH', './data/db.sqlite'),
   logLevel: optional('LOG_LEVEL', 'info') as 'trace' | 'debug' | 'info' | 'warn' | 'error',
+  ops: {
+    metricsWindowSecDefault: optionalNumber('OPS_METRICS_WINDOW_SEC_DEFAULT', 900),
+    metricsWindowSecMin: optionalNumber('OPS_METRICS_WINDOW_SEC_MIN', 60),
+    metricsWindowSecMax: optionalNumber('OPS_METRICS_WINDOW_SEC_MAX', 3600),
+    alertCooldownSec: optionalNumber('OPS_ALERT_COOLDOWN_SEC', 300),
+    thresholds: {
+      orderSuccessRateMin: optionalNumber('OPS_THRESHOLD_ORDER_SUCCESS_RATE_MIN', 0.95),
+      cancelErrorRateMax: optionalNumber('OPS_THRESHOLD_CANCEL_ERROR_RATE_MAX', 0.05),
+      amendErrorRateMax: optionalNumber('OPS_THRESHOLD_AMEND_ERROR_RATE_MAX', 0.2),
+      wsReconnectTotalMax: optionalNumber('OPS_THRESHOLD_WS_RECONNECT_TOTAL_MAX', 3),
+      reconcileMismatchTotalMax: optionalNumber(
+        'OPS_THRESHOLD_RECONCILE_MISMATCH_TOTAL_MAX',
+        1
+      ),
+      invalidAccountCountMax: optionalNumber('OPS_THRESHOLD_INVALID_ACCOUNT_MAX', 1),
+      accountScopeMismatchCountMax: optionalNumber(
+        'OPS_THRESHOLD_ACCOUNT_SCOPE_MISMATCH_MAX',
+        3
+      ),
+      accountIdRequiredForCancelCountMax: optionalNumber(
+        'OPS_THRESHOLD_ACCOUNT_ID_REQUIRED_FOR_CANCEL_MAX',
+        5
+      ),
+    },
+  },
 } as const;
 
 export type Symbol = 'BTCUSDT' | 'ETHUSDT' | (string & {});

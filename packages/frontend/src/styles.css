@@ -1,0 +1,630 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   HedgeStack — Trading Terminal Design System
+   HyperLiquid-inspired, ultra-refined interactive components
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+
+/* ── Design Tokens ─────────────────────────────────────────────────────────── */
+:root {
+  /* Backgrounds */
+  --bg-deep:    #08090b;
+  --bg-base:    #0c0e11;
+  --bg-panel:   #10141a;
+  --bg-row:     #0e1217;
+  --bg-hover:   #141b23;
+  --bg-active:  #1a2330;
+  --bg-input:   #0f141c;
+
+  /* Borders */
+  --border:     #181f28;
+  --border-mid: #22303f;
+  --border-hi:  #2d4055;
+
+  /* Text */
+  --text-1:     #dde3ea;
+  --text-2:     #64798a;
+  --text-3:     #35505f;
+
+  /* Semantic */
+  --green:         #00c076;
+  --green-dim:     rgba(0, 192, 118, 0.10);
+  --green-glow:    rgba(0, 192, 118, 0.20);
+  --green-border:  rgba(0, 192, 118, 0.30);
+  --red:           #f03058;
+  --red-dim:       rgba(240, 48, 88, 0.10);
+  --red-glow:      rgba(240, 48, 88, 0.20);
+  --red-border:    rgba(240, 48, 88, 0.30);
+  --accent:        #01d5bf;
+  --accent-dim:    rgba(1, 213, 191, 0.10);
+  --accent-glow:   rgba(1, 213, 191, 0.18);
+  --accent-border: rgba(1, 213, 191, 0.30);
+  --amber:         #e8a900;
+  --amber-dim:     rgba(232, 169, 0, 0.10);
+  --amber-border:  rgba(232, 169, 0, 0.30);
+
+  /* Typography */
+  --font-ui:   'Plus Jakarta Sans', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Courier New', monospace;
+
+  /* Motion */
+  --ease:      cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-out:  cubic-bezier(0, 0, 0.2, 1);
+  --t-fast:    0.12s;
+  --t-med:     0.2s;
+
+  /* Layout */
+  --header-h:  42px;
+  --sidebar-w: 272px;
+  --radius:    4px;
+  --radius-sm: 3px;
+}
+
+/* ── Global Resets ─────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body, #root { height: 100%; overflow: hidden; }
+
+body {
+  background: var(--bg-deep);
+  color: var(--text-1);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+input, select, button, textarea { font-family: inherit; font-size: inherit; }
+input:focus, select:focus, textarea:focus { outline: none; }
+button { cursor: pointer; border: none; background: none; }
+table { border-collapse: collapse; width: 100%; }
+a { color: inherit; text-decoration: none; }
+
+/* ── Scrollbars ────────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 3px; height: 3px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-mid); border-radius: 4px; transition: background var(--t-fast); }
+::-webkit-scrollbar-thumb:hover { background: var(--border-hi); }
+
+/* ── Number input — hide spinners ──────────────────────────────────────────── */
+input[type='number']::-webkit-inner-spin-button,
+input[type='number']::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+input[type='number'] { -moz-appearance: textfield; }
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   INPUTS & SELECTS
+   ══════════════════════════════════════════════════════════════════════════ */
+
+.hl-input {
+  background: var(--bg-input);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius);
+  color: var(--text-1);
+  padding: 7px 10px;
+  width: 100%;
+  transition:
+    border-color var(--t-fast) var(--ease),
+    box-shadow   var(--t-fast) var(--ease),
+    background   var(--t-fast) var(--ease);
+}
+
+.hl-input:hover:not(:focus):not(:disabled) {
+  border-color: var(--border-hi);
+  background: #121820;
+}
+
+.hl-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow), inset 0 0 0 1px rgba(1,213,191,0.05);
+  background: #0d1820;
+}
+
+.hl-input::placeholder { color: var(--text-3); }
+.hl-input:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* Select */
+select.hl-select {
+  background: var(--bg-input);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius);
+  color: var(--text-1);
+  padding: 7px 26px 7px 9px;
+  width: 100%;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='9' height='5' viewBox='0 0 9 5'%3E%3Cpath fill='%2364798a' d='M0 0l4.5 5L9 0z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 9px center;
+  cursor: pointer;
+  transition:
+    border-color var(--t-fast) var(--ease),
+    box-shadow   var(--t-fast) var(--ease),
+    background   var(--t-fast) var(--ease);
+}
+
+select.hl-select:hover:not(:focus):not(:disabled) {
+  border-color: var(--border-hi);
+  background-color: #121820;
+}
+
+select.hl-select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+  background-color: #0d1820;
+}
+
+select.hl-select:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   BUTTONS — base
+   ══════════════════════════════════════════════════════════════════════════ */
+
+.hl-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: none;
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  border-radius: var(--radius);
+  transition:
+    background     var(--t-fast) var(--ease),
+    color          var(--t-fast) var(--ease),
+    border-color   var(--t-fast) var(--ease),
+    box-shadow     var(--t-fast) var(--ease),
+    opacity        var(--t-fast) var(--ease),
+    transform      0.08s var(--ease);
+  user-select: none;
+  white-space: nowrap;
+  position: relative;
+}
+
+.hl-btn:active:not(:disabled) { transform: translateY(1px) scale(0.985); }
+.hl-btn:disabled { opacity: 0.3; cursor: not-allowed; pointer-events: none; }
+
+/* ── Size modifiers ── */
+.hl-btn-xs  { padding: 2px 7px;  font-size: 10px; }
+.hl-btn-sm  { padding: 4px 9px;  font-size: 11px; }
+.hl-btn-md  { padding: 6px 13px; font-size: 11px; }
+.hl-btn-lg  { padding: 9px 16px; font-size: 12px; }
+.hl-btn-full { width: 100%; }
+
+/* ── ACCENT (teal) — primary CTA ── */
+.hl-btn-accent {
+  background: var(--accent);
+  color: var(--bg-base);
+  border: 1px solid transparent;
+}
+.hl-btn-accent:hover:not(:disabled) {
+  background: #04e5cd;
+  box-shadow: 0 2px 16px var(--accent-glow), 0 0 0 1px rgba(1,213,191,0.3);
+}
+.hl-btn-accent:active:not(:disabled) { box-shadow: none; }
+
+/* ── GREEN (buy) — filled ── */
+.hl-btn-green {
+  background: var(--green);
+  color: #fff;
+  border: 1px solid transparent;
+}
+.hl-btn-green:hover:not(:disabled) {
+  background: #04d984;
+  box-shadow: 0 2px 16px var(--green-glow), 0 0 0 1px rgba(0,192,118,0.25);
+}
+
+/* ── RED (sell) — filled ── */
+.hl-btn-red {
+  background: var(--red);
+  color: #fff;
+  border: 1px solid transparent;
+}
+.hl-btn-red:hover:not(:disabled) {
+  background: #ff3a61;
+  box-shadow: 0 2px 16px var(--red-glow), 0 0 0 1px rgba(240,48,88,0.25);
+}
+
+/* ── GHOST NEUTRAL — minimal outlined ── */
+.hl-btn-ghost {
+  background: transparent;
+  color: var(--text-2);
+  border: 1px solid var(--border-mid);
+}
+.hl-btn-ghost:hover:not(:disabled) {
+  color: var(--text-1);
+  border-color: var(--border-hi);
+  background: var(--bg-hover);
+}
+
+/* ── GHOST GREEN ── */
+.hl-btn-ghost-green {
+  background: var(--green-dim);
+  color: var(--green);
+  border: 1px solid var(--green-border);
+}
+.hl-btn-ghost-green:hover:not(:disabled) {
+  background: rgba(0, 192, 118, 0.17);
+  border-color: rgba(0, 192, 118, 0.5);
+  box-shadow: 0 0 10px var(--green-glow);
+}
+
+/* ── GHOST RED ── */
+.hl-btn-ghost-red {
+  background: var(--red-dim);
+  color: var(--red);
+  border: 1px solid var(--red-border);
+}
+.hl-btn-ghost-red:hover:not(:disabled) {
+  background: rgba(240, 48, 88, 0.17);
+  border-color: rgba(240, 48, 88, 0.5);
+  box-shadow: 0 0 10px var(--red-glow);
+}
+
+/* ── GHOST AMBER ── */
+.hl-btn-ghost-amber {
+  background: var(--amber-dim);
+  color: var(--amber);
+  border: 1px solid var(--amber-border);
+}
+.hl-btn-ghost-amber:hover:not(:disabled) {
+  background: rgba(232, 169, 0, 0.17);
+  border-color: rgba(232, 169, 0, 0.5);
+  box-shadow: 0 0 10px rgba(232, 169, 0, 0.2);
+}
+
+/* ── GHOST ACCENT ── */
+.hl-btn-ghost-accent {
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--accent-border);
+}
+.hl-btn-ghost-accent:hover:not(:disabled) {
+  background: var(--accent-dim);
+  border-color: rgba(1, 213, 191, 0.5);
+  box-shadow: 0 0 10px var(--accent-glow);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   SEGMENT CONTROL (LIMIT/MARKET, LONG/SHORT tabs)
+   ══════════════════════════════════════════════════════════════════════════ */
+
+.hl-seg {
+  display: flex;
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--bg-input);
+}
+
+.hl-seg-btn {
+  flex: 1;
+  padding: 6px 0;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  background: transparent;
+  color: var(--text-3);
+  border: none;
+  cursor: pointer;
+  transition:
+    color      var(--t-fast) var(--ease),
+    background var(--t-fast) var(--ease);
+  position: relative;
+}
+
+.hl-seg-btn:hover:not(.active) {
+  color: var(--text-2);
+  background: var(--bg-hover);
+}
+
+.hl-seg-btn.active {
+  background: var(--bg-active);
+  color: var(--text-1);
+}
+
+/* ── Direction segments (LONG = green tint, SHORT = red tint) ── */
+.hl-seg-btn.active.long  { color: var(--green); background: rgba(0, 192, 118, 0.08); }
+.hl-seg-btn.active.short { color: var(--red);   background: rgba(240, 48, 88, 0.08); }
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   SYMBOL TABS (BTC / ETH toggle)
+   ══════════════════════════════════════════════════════════════════════════ */
+
+.hl-sym-tabs { display: flex; gap: 3px; }
+
+.hl-sym-btn {
+  flex: 1;
+  padding: 5px 0;
+  font-size: 10px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  letter-spacing: 0.06em;
+  background: transparent;
+  color: var(--text-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition:
+    color        var(--t-fast) var(--ease),
+    background   var(--t-fast) var(--ease),
+    border-color var(--t-fast) var(--ease);
+}
+
+.hl-sym-btn:hover:not(.active) {
+  color: var(--text-2);
+  border-color: var(--border-mid);
+  background: var(--bg-hover);
+}
+
+.hl-sym-btn.active {
+  color: var(--text-1);
+  background: var(--bg-active);
+  border-color: var(--border-hi);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   BUY / SELL action buttons
+   ══════════════════════════════════════════════════════════════════════════ */
+
+.hl-action-btn {
+  flex: 1;
+  padding: 7px 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition:
+    background   var(--t-fast) var(--ease),
+    color        var(--t-fast) var(--ease),
+    border-color var(--t-fast) var(--ease),
+    box-shadow   var(--t-fast) var(--ease),
+    opacity      var(--t-fast) var(--ease);
+}
+
+.hl-action-btn:active:not(:disabled) { transform: translateY(1px); }
+
+.hl-action-btn.buy {
+  background: rgba(0, 192, 118, 0.10);
+  color: var(--green);
+  border: 1px solid rgba(0, 192, 118, 0.3);
+}
+.hl-action-btn.buy.active,
+.hl-action-btn.buy:hover:not(:disabled) {
+  background: var(--green);
+  color: #fff;
+  border-color: var(--green);
+  box-shadow: 0 2px 12px rgba(0, 192, 118, 0.3);
+}
+
+.hl-action-btn.sell {
+  background: rgba(240, 48, 88, 0.10);
+  color: var(--red);
+  border: 1px solid rgba(240, 48, 88, 0.3);
+}
+.hl-action-btn.sell.active,
+.hl-action-btn.sell:hover:not(:disabled) {
+  background: var(--red);
+  color: #fff;
+  border-color: var(--red);
+  box-shadow: 0 2px 12px rgba(240, 48, 88, 0.3);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   SUBMIT BUTTON (full-width order placement)
+   ══════════════════════════════════════════════════════════════════════════ */
+
+.hl-submit {
+  width: 100%;
+  padding: 10px 0;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  border: none;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition:
+    background var(--t-fast) var(--ease),
+    box-shadow var(--t-fast) var(--ease),
+    transform  0.08s var(--ease);
+}
+
+.hl-submit:active:not(:disabled) { transform: translateY(1px); }
+.hl-submit:disabled { opacity: 0.35; cursor: not-allowed; }
+
+.hl-submit.buy {
+  background: var(--green);
+  color: #fff;
+}
+.hl-submit.buy:hover:not(:disabled) {
+  background: #04d984;
+  box-shadow: 0 4px 20px rgba(0, 192, 118, 0.35);
+}
+
+.hl-submit.sell {
+  background: var(--red);
+  color: #fff;
+}
+.hl-submit.sell:hover:not(:disabled) {
+  background: #ff3a61;
+  box-shadow: 0 4px 20px rgba(240, 48, 88, 0.35);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   CLOSE PERCENT CHIPS
+   ══════════════════════════════════════════════════════════════════════════ */
+
+.hl-close-chip {
+  background: rgba(240, 48, 88, 0.07);
+  color: var(--red);
+  border: 1px solid rgba(240, 48, 88, 0.2);
+  border-radius: var(--radius-sm);
+  padding: 2px 6px;
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background   var(--t-fast) var(--ease),
+    border-color var(--t-fast) var(--ease),
+    box-shadow   var(--t-fast) var(--ease),
+    transform    0.08s var(--ease);
+}
+.hl-close-chip:hover:not(:disabled) {
+  background: rgba(240, 48, 88, 0.16);
+  border-color: rgba(240, 48, 88, 0.45);
+  box-shadow: 0 0 8px rgba(240, 48, 88, 0.15);
+}
+.hl-close-chip:active:not(:disabled) { transform: scale(0.95); }
+.hl-close-chip:disabled { opacity: 0.25; cursor: not-allowed; }
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   TAB BAR
+   ══════════════════════════════════════════════════════════════════════════ */
+
+.hl-tabs { display: flex; border-bottom: 1px solid var(--border); }
+
+.hl-tab {
+  padding: 10px 15px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-2);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    color        var(--t-fast) var(--ease),
+    border-color var(--t-fast) var(--ease);
+}
+.hl-tab:hover:not(.active) { color: var(--text-1); }
+.hl-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   TABLE
+   ══════════════════════════════════════════════════════════════════════════ */
+
+.hl-th {
+  padding: 7px 10px;
+  color: var(--text-2);
+  font-weight: 500;
+  font-size: 11px;
+  text-align: left;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--border);
+  text-transform: uppercase;
+}
+
+.hl-td {
+  padding: 7px 10px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+tbody tr {
+  transition: background var(--t-fast) var(--ease);
+}
+tbody tr:hover { background: var(--bg-hover); }
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   FILTER CHIPS (VP filter in Open Orders)
+   ══════════════════════════════════════════════════════════════════════════ */
+
+.hl-filter-chip {
+  background: transparent;
+  color: var(--text-2);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius-sm);
+  padding: 3px 10px;
+  font-size: 10px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    color        var(--t-fast) var(--ease),
+    background   var(--t-fast) var(--ease),
+    border-color var(--t-fast) var(--ease);
+}
+.hl-filter-chip:hover:not(.active) {
+  color: var(--text-1);
+  border-color: var(--border-hi);
+  background: var(--bg-hover);
+}
+.hl-filter-chip.active {
+  color: var(--accent);
+  background: var(--accent-dim);
+  border-color: var(--accent-border);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   MODAL OVERLAY
+   ══════════════════════════════════════════════════════════════════════════ */
+
+.hl-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(3px);
+  animation: fadeIn 0.15s var(--ease-out);
+}
+
+.hl-modal {
+  background: var(--bg-panel);
+  border: 1px solid var(--border-mid);
+  border-radius: 6px;
+  padding: 24px;
+  box-shadow: 0 32px 80px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255,255,255,0.03);
+  animation: slideUp 0.18s var(--ease-out);
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   MISC UTILITIES
+   ══════════════════════════════════════════════════════════════════════════ */
+
+.hl-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  padding: 2px 6px;
+  border-radius: 2px;
+}
+
+.hl-divider { border: none; border-top: 1px solid var(--border); margin: 0; }
+
+/* Side badge */
+.hl-side-long  { color: var(--green); background: var(--green-dim);   border-radius: 2px; }
+.hl-side-short { color: var(--red);   background: var(--red-dim);     border-radius: 2px; }
+
+/* Pulsing dot */
+.hl-dot-live {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 0 var(--accent-glow);
+  animation: pulse-dot 2.5s ease-in-out infinite;
+  display: inline-block;
+}
+@keyframes pulse-dot {
+  0%, 100% { box-shadow: 0 0 0 0 var(--accent-glow); }
+  50%       { box-shadow: 0 0 0 4px transparent; }
+}

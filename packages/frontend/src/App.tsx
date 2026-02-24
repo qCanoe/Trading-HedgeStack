@@ -10,6 +10,25 @@ import ReconcilePanel from './components/ReconcilePanel/index.js';
 
 const SYMBOLS = ['BTCUSDT', 'ETHUSDT'];
 
+// ── shared style tokens ──────────────────────────────────────────────────────
+const C = {
+  bgDeep:   '#08090b',
+  bgBase:   '#0c0e11',
+  bgPanel:  '#10141a',
+  bgHover:  '#151c24',
+  bgActive: '#1a2330',
+  bgInput:  '#131820',
+  border:   '#1a2028',
+  borderMid:'#232d3a',
+  text1:    '#dde3ea',
+  text2:    '#68808f',
+  text3:    '#3a5060',
+  green:    '#00c076',
+  red:      '#f03058',
+  accent:   '#01d5bf',
+  amber:    '#e8a900',
+};
+
 export default function App() {
   const wsConnected = useStore((s) => s.wsConnected);
   const marketTicks = useStore((s) => s.marketTicks);
@@ -30,41 +49,34 @@ export default function App() {
   const [showCreateVp, setShowCreateVp] = useState(false);
   const [accountLoading, setAccountLoading] = useState(false);
 
-  useEffect(() => {
-    connectWs();
-  }, []);
+  useEffect(() => { connectWs(); }, []);
 
   useEffect(() => {
     setAccountLoading(true);
     api.getAccounts()
-      .then((data) => {
-        setAccounts(data.filter((acc) => acc.enabled));
-      })
-      .catch((err) => {
-        console.error('Load accounts failed', err);
-      })
+      .then((data) => setAccounts(data.filter((acc) => acc.enabled)))
+      .catch((err) => console.error('Load accounts failed', err))
       .finally(() => setAccountLoading(false));
   }, [setAccounts]);
 
   const visibleVps = useMemo(
     () => virtualPositions.filter((vp) => activeAccountId === 'ALL' || vp.account_id === activeAccountId),
-    [virtualPositions, activeAccountId]
+    [virtualPositions, activeAccountId],
   );
   const visibleOrders = useMemo(
     () => openOrders.filter((o) => activeAccountId === 'ALL' || o.account_id === activeAccountId),
-    [openOrders, activeAccountId]
+    [openOrders, activeAccountId],
+  );
+  const activeAccount = useMemo(
+    () => (activeAccountId === 'ALL' ? null : accounts.find((acc) => acc.id === activeAccountId) ?? null),
+    [accounts, activeAccountId],
   );
 
   async function createVP() {
     if (!newVpName.trim() || activeAccountId === 'ALL') return;
     setCreatingVp(true);
     try {
-      const vp = await api.createVP({
-        name: newVpName,
-        symbol: newVpSymbol,
-        positionSide: newVpSide,
-        account_id: activeAccountId,
-      });
+      const vp = await api.createVP({ name: newVpName, symbol: newVpSymbol, positionSide: newVpSide, account_id: activeAccountId });
       upsertVirtualPosition(vp);
       setNewVpName('');
       setShowCreateVp(false);
@@ -75,125 +87,149 @@ export default function App() {
     }
   }
 
-  const inputStyle: React.CSSProperties = {
-    background: '#2b3139', border: '1px solid #363c45', borderRadius: 4,
-    color: '#eaecef', padding: '6px 8px', fontSize: 13, outline: 'none',
-  };
+  const openCount = visibleVps.filter((v) => parseFloat(v.net_qty) > 0).length;
 
   return (
-    <div style={{ minHeight: '100vh', background: '#0b0e11', color: '#eaecef' }}>
-      <header
-        style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '10px 20px', borderBottom: '1px solid #2b3139', background: '#1e2329',
-        }}
-      >
-        <div style={{ fontWeight: 700, fontSize: 16, color: '#f0b90b' }}>
-          HedgeStack
-          <span style={{ fontSize: 11, color: '#848e9c', marginLeft: 8 }}>USDT-M Futures</span>
+    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: C.bgDeep, color: C.text1, overflow: 'hidden' }}>
+      {/* ── Header ── */}
+      <header style={{
+        height: 'var(--header-h)',
+        minHeight: 'var(--header-h)',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 0,
+        borderBottom: `1px solid ${C.border}`,
+        background: C.bgBase,
+        padding: '0 16px',
+      }}>
+        {/* Logo */}
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginRight: 28 }}>
+          <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: 13, color: C.accent, letterSpacing: '0.04em' }}>
+            HEDGESTACK
+          </span>
+          <span style={{ fontSize: 10, color: C.text3, letterSpacing: '0.03em' }}>USDT-M</span>
         </div>
 
-        <div style={{ display: 'flex', gap: 24 }}>
+        {/* Market tickers */}
+        <div style={{ display: 'flex', gap: 20, marginRight: 'auto' }}>
           {SYMBOLS.map((sym) => {
             const tick = marketTicks[sym];
-            return tick ? (
-              <div key={sym} style={{ textAlign: 'center' }}>
-                <div style={{ fontSize: 11, color: '#848e9c' }}>{sym}</div>
-                <div style={{ fontWeight: 600 }}>{fmtPrice(tick.markPrice)}</div>
+            if (!tick) return null;
+            const label = sym.replace('USDT', '');
+            return (
+              <div key={sym} style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+                <span style={{ fontSize: 10, color: C.text2, fontWeight: 600, letterSpacing: '0.04em' }}>{label}</span>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 500 }}>
+                  {fmtPrice(tick.markPrice)}
+                </span>
               </div>
-            ) : null;
+            );
           })}
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        {/* Account selector */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <select
             value={activeAccountId}
             onChange={(e) => setActiveAccountId(e.target.value as string | 'ALL')}
             disabled={accountLoading}
-            style={{
-              background: '#2b3139', border: '1px solid #363c45', borderRadius: 4,
-              color: '#eaecef', padding: '5px 8px', fontSize: 12, outline: 'none',
-            }}
+            className="hl-select"
+            style={{ fontSize: 11, padding: '4px 22px 4px 8px', minWidth: 140 }}
           >
             <option value="ALL">All Accounts</option>
             {accounts.map((acc) => (
               <option key={acc.id} value={acc.id}>
-                {acc.name} ({acc.id})
+                {acc.name}
               </option>
             ))}
           </select>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span
-              style={{
-                width: 8, height: 8, borderRadius: '50%',
-                background: wsConnected ? '#0ecb81' : '#f6465d',
-                display: 'inline-block',
-              }}
-            />
-            <span style={{ fontSize: 12, color: '#848e9c' }}>
-              {wsConnected ? '已连接' : '连接中...'}
+          {activeAccount && (
+            <span style={{
+              fontSize: 10,
+              color: activeAccount.ws_status === 'CONNECTED' ? C.green : C.text3,
+              fontFamily: 'var(--font-mono)',
+            }}>
+              {activeAccount.ws_status}
+            </span>
+          )}
+
+          {/* WS dot */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+            {wsConnected
+              ? <span className="hl-dot-live" />
+              : <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--text-3)', display: 'inline-block' }} />
+            }
+            <span style={{ fontSize: 10, color: 'var(--text-2)', fontFamily: 'var(--font-mono)' }}>
+              {wsConnected ? 'LIVE' : 'CONN…'}
             </span>
           </div>
         </div>
       </header>
 
-      <div style={{ display: 'flex', height: 'calc(100vh - 49px)' }}>
-        <aside
-          style={{
-            width: 300, minWidth: 280, padding: 16,
-            borderRight: '1px solid #2b3139', overflowY: 'auto', background: '#161a1e',
-          }}
-        >
-          <div
-            style={{
-              background: '#1e2329', border: '1px solid #2b3139',
-              borderRadius: 4, padding: 12, marginBottom: 12,
-            }}
-          >
-            <div
-              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}
-            >
-              <span style={{ fontWeight: 600, fontSize: 13 }}>虚拟仓位</span>
+      {/* ── Body ── */}
+      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+        {/* ── Sidebar ── */}
+        <aside style={{
+          width: 'var(--sidebar-w)',
+          minWidth: 'var(--sidebar-w)',
+          borderRight: `1px solid ${C.border}`,
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+          background: C.bgPanel,
+        }}>
+          {/* VP section */}
+          <div style={{
+            borderBottom: `1px solid ${C.border}`,
+            padding: '10px 12px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 8,
+          }}>
+            {/* VP header row */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: 10, fontWeight: 700, color: C.text2, letterSpacing: '0.08em' }}>
+                VIRTUAL POSITIONS
+              </span>
               <button
                 onClick={() => setShowCreateVp(!showCreateVp)}
                 disabled={activeAccountId === 'ALL'}
-                style={{
-                  background: '#f0b90b', color: '#1e2329', border: 'none',
-                  borderRadius: 3, padding: '3px 8px', cursor: 'pointer', fontSize: 11, fontWeight: 600,
-                  opacity: activeAccountId === 'ALL' ? 0.5 : 1,
-                }}
+                className={showCreateVp ? 'hl-btn hl-btn-xs hl-btn-accent' : 'hl-btn hl-btn-xs hl-btn-ghost-accent'}
               >
-                + 创建
+                + NEW
               </button>
             </div>
 
             {activeAccountId === 'ALL' && (
-              <div style={{ color: '#848e9c', fontSize: 11, marginBottom: 8 }}>
-                All 视图为只读，请切换到账户后再创建或交易
-              </div>
+              <div style={{ fontSize: 10, color: C.text3 }}>All 视图只读 — 请切换账户</div>
             )}
 
+            {/* Create form */}
             {showCreateVp && activeAccountId !== 'ALL' && (
-              <div style={{ marginBottom: 8 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 5, paddingTop: 4 }}>
                 <input
                   value={newVpName}
                   onChange={(e) => setNewVpName(e.target.value)}
                   placeholder="仓位名称"
-                  style={{ ...inputStyle, width: '100%', marginBottom: 4 }}
+                  className="hl-input"
+                  style={{ fontSize: 11, padding: '5px 8px' }}
+                  onKeyDown={(e) => e.key === 'Enter' && createVP()}
                 />
-                <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
+                <div style={{ display: 'flex', gap: 5 }}>
                   <select
                     value={newVpSymbol}
                     onChange={(e) => setNewVpSymbol(e.target.value)}
-                    style={{ ...inputStyle, flex: 1 }}
+                    className="hl-select"
+                    style={{ flex: 1, fontSize: 11, padding: '4px 20px 4px 6px' }}
                   >
                     {SYMBOLS.map((s) => <option key={s} value={s}>{s}</option>)}
                   </select>
                   <select
                     value={newVpSide}
                     onChange={(e) => setNewVpSide(e.target.value as 'LONG' | 'SHORT')}
-                    style={{ ...inputStyle, flex: 1 }}
+                    className="hl-select"
+                    style={{ flex: 1, fontSize: 11, padding: '4px 20px 4px 6px' }}
                   >
                     <option value="LONG">LONG</option>
                     <option value="SHORT">SHORT</option>
@@ -202,83 +238,101 @@ export default function App() {
                 <button
                   onClick={createVP}
                   disabled={creatingVp || !newVpName.trim()}
-                  style={{
-                    width: '100%', background: '#f0b90b', color: '#1e2329',
-                    border: 'none', borderRadius: 4, padding: '6px 0', cursor: 'pointer', fontWeight: 600,
-                  }}
+                  className="hl-btn hl-btn-accent hl-btn-full"
+                  style={{ fontSize: 11, padding: '6px 0' }}
                 >
-                  {creatingVp ? '创建中...' : '确认创建'}
+                  {creatingVp ? '创建中…' : '确认创建'}
                 </button>
               </div>
             )}
 
-            {visibleVps.length === 0 ? (
-              <div style={{ color: '#848e9c', fontSize: 12 }}>暂无虚拟仓位</div>
-            ) : (
-              visibleVps.map((vp) => (
-                <div
-                  key={vp.id}
-                  style={{
-                    display: 'flex', justifyContent: 'space-between',
-                    padding: '4px 0', borderBottom: '1px solid #2b3139', fontSize: 12,
-                  }}
-                >
-                  <span style={{ color: '#eaecef' }}>
-                    {vp.name}
-                    {activeAccountId === 'ALL' && (
-                      <span style={{ color: '#848e9c', marginLeft: 6 }}>[{vp.account_id}]</span>
-                    )}
-                  </span>
-                  <span style={{ color: vp.positionSide === 'LONG' ? '#0ecb81' : '#f6465d' }}>
-                    {vp.positionSide} {parseFloat(vp.net_qty).toFixed(3)}
-                  </span>
-                </div>
-              ))
-            )}
+            {/* VP list */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 1, maxHeight: 200, overflowY: 'auto' }}>
+              {visibleVps.length === 0 ? (
+                <div style={{ fontSize: 11, color: C.text3, padding: '4px 0' }}>暂无仓位</div>
+              ) : (
+                visibleVps.map((vp) => {
+                  const isOpen = parseFloat(vp.net_qty) > 0;
+                  return (
+                    <div key={vp.id} style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      padding: '5px 6px',
+                      borderRadius: 'var(--radius-sm)',
+                      background: isOpen ? 'var(--bg-active)' : 'transparent',
+                      transition: 'background var(--t-fast)',
+                    }}>
+                      <div>
+                        <span style={{ fontSize: 11, color: isOpen ? 'var(--text-1)' : 'var(--text-3)' }}>{vp.name}</span>
+                        {activeAccountId === 'ALL' && (
+                          <span style={{ fontSize: 9, color: 'var(--text-3)', marginLeft: 5 }}>{vp.account_id}</span>
+                        )}
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                        <span
+                          className={vp.positionSide === 'LONG' ? 'hl-side-long' : 'hl-side-short'}
+                          style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.04em', padding: '1px 5px' }}
+                        >
+                          {vp.positionSide}
+                        </span>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: isOpen ? 'var(--text-1)' : 'var(--text-3)' }}>
+                          {parseFloat(vp.net_qty).toFixed(3)}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
           </div>
 
-          <OrderPanel />
+          {/* Order panel */}
+          <div style={{ flex: 1, overflowY: 'auto' }}>
+            <OrderPanel />
+          </div>
         </aside>
 
-        <main style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-          <div style={{ padding: '0 16px' }}>
-            <ReconcilePanel />
+        {/* ── Main content ── */}
+        <main style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: C.bgBase }}>
+          {/* Reconcile alert */}
+          <ReconcilePanel />
+
+          {/* Tab bar */}
+          <div className="hl-tabs" style={{ background: C.bgPanel, padding: '0 16px' }}>
+            {([
+              { key: 'positions',     label: 'Positions',    count: openCount },
+              { key: 'open_orders',   label: 'Open Orders',  count: visibleOrders.length },
+              { key: 'order_history', label: 'Trade History', count: null },
+            ] as const).map(({ key, label, count }) => (
+              <button
+                key={key}
+                className={`hl-tab${activeTab === key ? ' active' : ''}`}
+                onClick={() => setActiveTab(key)}
+              >
+                {label}
+                {count != null && count > 0 && (
+                  <span style={{
+                    marginLeft: 5,
+                    background: activeTab === key ? C.accent : C.borderMid,
+                    color: activeTab === key ? C.bgBase : C.text2,
+                    fontSize: 10,
+                    fontWeight: 700,
+                    padding: '1px 5px',
+                    borderRadius: 9,
+                  }}>
+                    {count}
+                  </span>
+                )}
+              </button>
+            ))}
           </div>
 
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-            <div
-              style={{
-                display: 'flex', borderBottom: '1px solid #2b3139',
-                padding: '0 16px', background: '#161a1e',
-              }}
-            >
-              {(
-                [
-                  { key: 'positions', label: `仓位 (${visibleVps.filter((v) => parseFloat(v.net_qty) > 0).length})` },
-                  { key: 'open_orders', label: `挂单 (${visibleOrders.length})` },
-                  { key: 'order_history', label: '成交历史' },
-                ] as const
-              ).map(({ key, label }) => (
-                <button
-                  key={key}
-                  onClick={() => setActiveTab(key)}
-                  style={{
-                    padding: '12px 16px', background: 'transparent',
-                    border: 'none', cursor: 'pointer', fontSize: 13,
-                    color: activeTab === key ? '#f0b90b' : '#848e9c',
-                    borderBottom: activeTab === key ? '2px solid #f0b90b' : '2px solid transparent',
-                  }}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-
-            <div style={{ flex: 1, padding: 0, overflowX: 'auto' }}>
-              {activeTab === 'positions' && <Positions />}
-              {activeTab === 'open_orders' && <OpenOrders />}
-              {activeTab === 'order_history' && <OrderHistory />}
-            </div>
+          {/* Tab content */}
+          <div style={{ flex: 1, overflowY: 'auto', overflowX: 'auto' }}>
+            {activeTab === 'positions'     && <Positions />}
+            {activeTab === 'open_orders'   && <OpenOrders />}
+            {activeTab === 'order_history' && <OrderHistory />}
           </div>
         </main>
       </div>
@@ -286,62 +340,68 @@ export default function App() {
   );
 }
 
+// ── Order History ────────────────────────────────────────────────────────────
 function OrderHistory() {
   const recentFills = useStore((s) => s.recentFills);
   const virtualPositions = useStore((s) => s.virtualPositions);
   const activeAccountId = useStore((s) => s.activeAccountId);
-  const visibleFills = recentFills.filter((fill) => activeAccountId === 'ALL' || fill.account_id === activeAccountId);
+  const visibleFills = recentFills.filter(
+    (fill) => activeAccountId === 'ALL' || fill.account_id === activeAccountId,
+  );
 
-  const { fmtPrice, fmtQty, fmtTime } = {
-    fmtPrice: (v: string) => parseFloat(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
-    fmtQty: (v: string) => parseFloat(v).toFixed(4),
-    fmtTime: (ts: number) => new Date(ts).toLocaleString(),
+  const fmt = {
+    price: (v: string) => parseFloat(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+    qty:   (v: string) => parseFloat(v).toFixed(4),
+    time:  (ts: number) => new Date(ts).toLocaleString('en-US', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }),
   };
-  const cell: React.CSSProperties = { padding: '7px 10px', fontSize: 12 };
 
   function vpName(vpId: string | null): string {
     if (!vpId) return '—';
     return virtualPositions.find((v) => v.id === vpId)?.name ?? vpId.slice(0, 8);
   }
 
+  const headers = ['账户', '合约', '方向', '数量', '成交价', 'VP', '实现PnL', '手续费', '时间'];
+
   return (
     <div style={{ overflowX: 'auto' }}>
       {visibleFills.length === 0 ? (
-        <div style={{ padding: 24, color: '#848e9c', textAlign: 'center' }}>暂无成交记录</div>
+        <EmptyState label="暂无成交记录" />
       ) : (
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <table>
           <thead>
-            <tr style={{ borderBottom: '1px solid #2b3139' }}>
-              {['账户', '合约', '方向', '数量', '成交价', 'VP', '已实现PnL', '手续费', '时间'].map((h) => (
-                <th key={h} style={{ ...cell, color: '#848e9c', fontWeight: 400, textAlign: 'left' }}>{h}</th>
-              ))}
+            <tr>
+              {headers.map((h) => <th key={h} className="hl-th">{h}</th>)}
             </tr>
           </thead>
           <tbody>
-            {visibleFills.map((fill) => (
-              <tr key={fill.tradeId} style={{ borderBottom: '1px solid #1e2329' }}>
-                <td style={{ ...cell, color: '#848e9c' }}>{fill.account_id}</td>
-                <td style={cell}>{fill.symbol}</td>
-                <td style={{ ...cell, color: fill.side === 'BUY' ? '#0ecb81' : '#f6465d', fontWeight: 600 }}>
-                  {fill.side} {fill.positionSide}
-                </td>
-                <td style={cell}>{fmtQty(fill.qty)}</td>
-                <td style={cell}>{fmtPrice(fill.price)}</td>
-                <td style={{ ...cell, color: '#f0b90b' }}>{vpName(fill.virtual_position_id)}</td>
-                <td
-                  style={{
-                    ...cell,
-                    color: parseFloat(fill.realizedPnl) >= 0 ? '#0ecb81' : '#f6465d',
-                  }}
-                >
-                  {parseFloat(fill.realizedPnl) >= 0 ? '+' : ''}{parseFloat(fill.realizedPnl).toFixed(4)}
-                </td>
-                <td style={{ ...cell, color: '#848e9c' }}>
-                  -{fill.commission} {fill.commissionAsset}
-                </td>
-                <td style={{ ...cell, color: '#848e9c' }}>{fmtTime(fill.ts)}</td>
-              </tr>
-            ))}
+            {visibleFills.map((fill) => {
+              const pnl = parseFloat(fill.realizedPnl);
+              return (
+                <tr key={fill.tradeId} style={{ borderBottom: '1px solid var(--border)' }}>
+                  <td className="hl-td" style={{ color: 'var(--text-2)' }}>{fill.account_id}</td>
+                  <td className="hl-td" style={{ fontFamily: 'var(--font-mono)', fontWeight: 500 }}>{fill.symbol}</td>
+                  <td className="hl-td">
+                    <SideBadge side={fill.side} positionSide={fill.positionSide} />
+                  </td>
+                  <td className="hl-td" style={{ fontFamily: 'var(--font-mono)' }}>{fmt.qty(fill.qty)}</td>
+                  <td className="hl-td" style={{ fontFamily: 'var(--font-mono)' }}>{fmt.price(fill.price)}</td>
+                  <td className="hl-td" style={{ color: 'var(--amber)' }}>{vpName(fill.virtual_position_id)}</td>
+                  <td className="hl-td" style={{
+                    fontFamily: 'var(--font-mono)',
+                    fontWeight: 500,
+                    color: pnl > 0 ? 'var(--green)' : pnl < 0 ? 'var(--red)' : 'var(--text-2)',
+                  }}>
+                    {pnl >= 0 ? '+' : ''}{pnl.toFixed(4)}
+                  </td>
+                  <td className="hl-td" style={{ color: 'var(--text-2)', fontFamily: 'var(--font-mono)' }}>
+                    -{fill.commission} {fill.commissionAsset}
+                  </td>
+                  <td className="hl-td" style={{ color: 'var(--text-2)', fontFamily: 'var(--font-mono)', fontSize: 11 }}>
+                    {fmt.time(fill.ts)}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       )}
@@ -349,3 +409,29 @@ function OrderHistory() {
   );
 }
 
+// ── Shared sub-components ────────────────────────────────────────────────────
+export function SideBadge({ side, positionSide }: { side: string; positionSide: string }) {
+  const isBuy = side === 'BUY';
+  return (
+    <span style={{
+      fontFamily: 'var(--font-mono)',
+      fontSize: 10,
+      fontWeight: 600,
+      letterSpacing: '0.04em',
+      color: isBuy ? 'var(--green)' : 'var(--red)',
+      background: isBuy ? 'var(--green-dim)' : 'var(--red-dim)',
+      padding: '2px 5px',
+      borderRadius: 2,
+    }}>
+      {side} {positionSide}
+    </span>
+  );
+}
+
+export function EmptyState({ label }: { label: string }) {
+  return (
+    <div style={{ padding: '40px 24px', textAlign: 'center', color: 'var(--text-3)', fontSize: 12 }}>
+      {label}
+    </div>
+  );
+}

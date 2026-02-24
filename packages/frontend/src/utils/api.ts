@@ -3,6 +3,8 @@
  */
 import type {
   AccountInfo,
+  AccountStreamStatus,
+  PlaceOrderType,
   VirtualPosition,
   OrderRecord,
   FillRecord,
@@ -46,6 +48,7 @@ export const api = {
     open_orders: OrderRecord[];
     recent_fills: FillRecord[];
     market: Record<string, MarketTick>;
+    accounts_status: AccountStreamStatus[];
     consistency: ConsistencyStatus[];
     reconcile: Record<string, Record<string, string>>;
     }>('GET', `/state${suffix}`);
@@ -64,16 +67,34 @@ export const api = {
     symbol: string;
     positionSide: string;
     side: string;
-    type: string;
+    type: PlaceOrderType;
     qty: string;
     price?: string;
     stopPrice?: string;
+    triggerPriceType?: 'LAST_PRICE' | 'MARK_PRICE';
     reduceOnly?: boolean;
     timeInForce?: string;
   }) => request<{ orderId: string; clientOrderId: string; status: string }>('POST', '/orders', body),
 
   cancelOrder: (orderId: string, symbol: string, account_id?: string) =>
     request<{ orderId: string; status: string }>('POST', `/orders/${orderId}/cancel`, { symbol, account_id }),
+
+  amendOrder: (orderId: string, body: {
+    account_id?: string;
+    symbol: string;
+    virtual_position_id?: string;
+    type: Exclude<PlaceOrderType, 'MARKET'>;
+    qty: string;
+    price?: string;
+    stopPrice?: string;
+    triggerPriceType?: 'LAST_PRICE' | 'MARK_PRICE';
+    timeInForce?: string;
+  }) => request<{
+    old_order_id: string;
+    new_order_id: string;
+    clientOrderId: string;
+    status: string;
+  }>('POST', `/orders/${orderId}/amend`, body),
 
   // Close position
   closePosition: (
@@ -91,6 +112,7 @@ export const api = {
       sl_price?: string | null;
       sl_trigger_type?: string;
       qty?: string;
+      percent?: number;
     }
   ) => request<VirtualPosition>('POST', `/virtual-positions/${vpId}/tpsl`, body),
   clearTpSl: (vpId: string) =>

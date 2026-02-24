@@ -11,18 +11,16 @@ import {
   createVP,
   getExternalPosition,
   getExternalPositions,
+  positionKey,
   setConsistencyStatus,
 } from '../../store/state.js';
 import { broadcast } from '../../ws/gateway.js';
+import { recordReconcileMismatch } from '../../ops/metrics.js';
 import type { VirtualPosition, ConsistencyStatus, ReconcileRequest } from '../../store/types.js';
 import type { Symbol, PositionSide } from '../../config/env.js';
 
 const UNASSIGNED_PREFIX = 'UNASSIGNED';
 const EPSILON = 0.0001;
-
-function consistencyKey(accountId: string, symbol: Symbol, positionSide: PositionSide): string {
-  return `${accountId}_${symbol}_${positionSide}`;
-}
 
 function parseQty(raw: string, label: string): number {
   const val = parseFloat(raw);
@@ -39,28 +37,44 @@ export function checkConsistency(accountId?: string): void {
   const vps = getAllVPs(accountId ? { account_id: accountId } : undefined);
   const external = getExternalPositions(accountId ? { account_id: accountId } : undefined);
 
-  const vpTotals = new Map<string, number>();
+  const vpTotals = new Map<string, { account_id: string; symbol: Symbol; positionSide: PositionSide; qty: number }>();
   for (const vp of vps) {
-    const key = consistencyKey(vp.account_id, vp.symbol, vp.positionSide);
-    vpTotals.set(key, (vpTotals.get(key) ?? 0) + parseFloat(vp.net_qty));
+    const key = positionKey(vp.account_id, vp.symbol, vp.positionSide);
+    const prev = vpTotals.get(key);
+    vpTotals.set(key, {
+      account_id: vp.account_id,
+      symbol: vp.symbol,
+      positionSide: vp.positionSide,
+      qty: (prev?.qty ?? 0) + parseFloat(vp.net_qty),
+    });
   }
 
-  const extTotals = new Map<string, number>();
+  const extTotals = new Map<string, { account_id: string; symbol: Symbol; positionSide: PositionSide; qty: number }>();
   for (const ext of external) {
-    const key = consistencyKey(ext.account_id, ext.symbol, ext.positionSide);
-    extTotals.set(key, parseFloat(ext.qty));
+    const key = positionKey(ext.account_id, ext.symbol, ext.positionSide);
+    extTotals.set(key, {
+      account_id: ext.account_id,
+      symbol: ext.symbol,
+      positionSide: ext.positionSide,
+      qty: parseFloat(ext.qty),
+    });
   }
 
   const keys = new Set<string>([...vpTotals.keys(), ...extTotals.keys()]);
 
   for (const key of keys) {
-    const [acc, symbol, positionSide] = key.split('_') as [string, Symbol, PositionSide];
-    const vpQty = vpTotals.get(key) ?? 0;
-    const extQty = extTotals.get(key) ?? 0;
+    const vp = vpTotals.get(key);
+    const ext = extTotals.get(key);
+    if (!vp && !ext) continue;
+    const account_id = vp?.account_id ?? ext!.account_id;
+    const symbol = vp?.symbol ?? ext!.symbol;
+    const positionSide = vp?.positionSide ?? ext!.positionSide;
+    const vpQty = vp?.qty ?? 0;
+    const extQty = ext?.qty ?? 0;
     const diff = Math.abs(extQty - vpQty);
 
     const status: ConsistencyStatus = {
-      account_id: acc,
+      account_id,
       symbol,
       positionSide,
       status: diff < EPSILON ? 'OK' : 'MISMATCH',
@@ -68,6 +82,9 @@ export function checkConsistency(accountId?: string): void {
       virtual_qty: vpQty.toFixed(8),
     };
 
+    if (status.status === 'MISMATCH') {
+      recordReconcileMismatch(account_id);
+    }
     setConsistencyStatus(status);
     broadcast({ type: 'CONSISTENCY_STATUS', payload: status, ts: Date.now() });
   }
@@ -159,4 +176,3 @@ export function applyReconcile(req: ReconcileRequest): VirtualPosition[] {
 
   return updated;
 }
-

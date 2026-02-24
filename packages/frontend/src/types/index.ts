@@ -4,6 +4,7 @@ export type Symbol = 'BTCUSDT' | 'ETHUSDT' | string;
 export type PositionSide = 'LONG' | 'SHORT';
 export type OrderSide = 'BUY' | 'SELL';
 export type OrderType = 'MARKET' | 'LIMIT' | 'STOP_MARKET' | 'STOP' | 'TAKE_PROFIT_MARKET' | 'TAKE_PROFIT';
+export type PlaceOrderType = 'MARKET' | 'LIMIT' | 'STOP_MARKET' | 'STOP';
 export type TimeInForce = 'GTC' | 'IOC' | 'FOK' | 'GTX';
 export type AccountType = 'MAIN' | 'SUB';
 
@@ -14,6 +15,17 @@ export interface AccountInfo {
   testnet: boolean;
   enabled: boolean;
   ws_status: 'CONNECTED' | 'DISCONNECTED' | 'UNKNOWN';
+  last_error: string | null;
+  last_connected_at: number | null;
+}
+
+export interface AccountStreamStatus {
+  account_id: string;
+  ws_status: 'CONNECTED' | 'DISCONNECTED' | 'UNKNOWN';
+  reason: string | null;
+  last_error: string | null;
+  last_connected_at: number | null;
+  updated_at: number;
 }
 
 export interface TpSlConfig {
@@ -105,6 +117,7 @@ export type EventType =
   | 'FILL'
   | 'VIRTUAL_POSITION_UPDATE'
   | 'EXTERNAL_POSITION_UPDATE'
+  | 'ACCOUNT_STREAM_STATUS'
   | 'TPSL_SYNC_STATUS'
   | 'CONSISTENCY_STATUS'
   | 'MARKET_TICK'
@@ -123,6 +136,7 @@ export interface StateSnapshot {
   recent_fills: FillRecord[];
   external_positions: ExternalPosition[];
   market: Record<string, MarketTick>;
+  accounts_status: AccountStreamStatus[];
   consistency: ConsistencyStatus[];
   reconcile: Record<string, Record<string, string>>;
 }
