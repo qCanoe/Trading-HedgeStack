@@ -21,18 +21,29 @@ export default function Positions() {
   const marketTicks = useStore((s) => s.marketTicks);
   const consistencyStatuses = useStore((s) => s.consistencyStatuses);
   const upsertVirtualPosition = useStore((s) => s.upsertVirtualPosition);
+  const activeAccountId = useStore((s) => s.activeAccountId);
 
   const [tpslVp, setTpslVp] = useState<VirtualPosition | null>(null);
   const [closingVpId, setClosingVpId] = useState<string | null>(null);
   const [customCloseQty, setCustomCloseQty] = useState<Record<string, string>>({});
 
-  const openPositions = virtualPositions.filter((vp) => parseFloat(vp.net_qty) > 0);
-  const emptyPositions = virtualPositions.filter((vp) => parseFloat(vp.net_qty) === 0);
+  const visiblePositions = virtualPositions.filter(
+    (vp) => activeAccountId === 'ALL' || vp.account_id === activeAccountId
+  );
+  const openPositions = visiblePositions.filter((vp) => parseFloat(vp.net_qty) > 0);
+  const emptyPositions = visiblePositions.filter((vp) => parseFloat(vp.net_qty) === 0);
+  const isReadOnlyAll = activeAccountId === 'ALL';
 
   async function closePosition(vpId: string, percent?: number, qty?: string) {
+    const vp = virtualPositions.find((item) => item.id === vpId);
+    if (!vp) return;
     setClosingVpId(vpId);
     try {
-      await api.closePosition(vpId, { type: 'MARKET', ...(percent ? { percent } : { qty }) });
+      await api.closePosition(vpId, {
+        type: 'MARKET',
+        account_id: vp.account_id,
+        ...(percent ? { percent } : { qty }),
+      });
     } catch (err: any) {
       alert(`平仓失败: ${err.message}`);
     } finally {
@@ -41,7 +52,7 @@ export default function Positions() {
   }
 
   function isConsistencyMismatch(vp: VirtualPosition): boolean {
-    const key = `${vp.symbol}_${vp.positionSide}`;
+    const key = `${vp.account_id}_${vp.symbol}_${vp.positionSide}`;
     return consistencyStatuses[key]?.status === 'MISMATCH';
   }
 
@@ -64,6 +75,7 @@ export default function Positions() {
       >
         {/* Symbol + Name */}
         <td style={cell}>
+          <div style={{ color: '#848e9c', fontSize: 11 }}>{vp.account_id}</div>
           <div style={{ fontWeight: 600, color: '#eaecef' }}>{vp.symbol}</div>
           <div style={{ color: '#848e9c', fontSize: 11 }}>{vp.name}</div>
         </td>
@@ -110,7 +122,7 @@ export default function Positions() {
             {/* TP/SL button */}
             <button
               onClick={() => setTpslVp(vp)}
-              disabled={mismatch}
+              disabled={mismatch || isReadOnlyAll}
               style={{
                 background: '#2b3139', color: '#f0b90b', border: '1px solid #f0b90b',
                 borderRadius: 3, padding: '3px 7px', cursor: 'pointer', fontSize: 11,
@@ -124,7 +136,7 @@ export default function Positions() {
               <button
                 key={pct}
                 onClick={() => closePosition(vp.id, pct)}
-                disabled={closingVpId === vp.id || mismatch}
+                disabled={closingVpId === vp.id || mismatch || isReadOnlyAll}
                 style={{
                   background: '#2e1a1e', color: '#f6465d', border: '1px solid #f6465d',
                   borderRadius: 3, padding: '3px 6px', cursor: 'pointer', fontSize: 11,
@@ -148,7 +160,7 @@ export default function Positions() {
             />
             <button
               onClick={() => closePosition(vp.id, undefined, customCloseQty[vp.id])}
-              disabled={!customCloseQty[vp.id] || closingVpId === vp.id || mismatch}
+              disabled={!customCloseQty[vp.id] || closingVpId === vp.id || mismatch || isReadOnlyAll}
               style={{
                 background: '#2b3139', color: '#f6465d', border: '1px solid #f6465d',
                 borderRadius: 3, padding: '3px 6px', cursor: 'pointer', fontSize: 11,
@@ -159,6 +171,9 @@ export default function Positions() {
 
             {mismatch && (
               <span style={{ color: '#f0b90b', fontSize: 10 }}>⚠ 对账中</span>
+            )}
+            {isReadOnlyAll && (
+              <span style={{ color: '#848e9c', fontSize: 10 }}>All 只读</span>
             )}
           </div>
         </td>
@@ -178,7 +193,7 @@ export default function Positions() {
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ borderBottom: '1px solid #2b3139' }}>
-              {['合约', '方向', '数量', '开仓价', '标记价', '浮动PnL', '已实现PnL', 'TP/SL', '操作'].map((h) => (
+              {['账户', '合约', '方向', '数量', '开仓价', '标记价', '浮动PnL', '已实现PnL', 'TP/SL', '操作'].map((h) => (
                 <th key={h} style={{ ...cell, color: '#848e9c', fontWeight: 400, textAlign: 'left' }}>
                   {h}
                 </th>

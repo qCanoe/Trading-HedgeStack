@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useStore } from './store/index.js';
 import { connectWs } from './ws/client.js';
 import { api } from './utils/api.js';
@@ -14,26 +14,57 @@ export default function App() {
   const wsConnected = useStore((s) => s.wsConnected);
   const marketTicks = useStore((s) => s.marketTicks);
   const virtualPositions = useStore((s) => s.virtualPositions);
+  const openOrders = useStore((s) => s.openOrders);
+  const accounts = useStore((s) => s.accounts);
+  const setAccounts = useStore((s) => s.setAccounts);
+  const activeAccountId = useStore((s) => s.activeAccountId);
+  const setActiveAccountId = useStore((s) => s.setActiveAccountId);
   const activeTab = useStore((s) => s.activeTab);
   const setActiveTab = useStore((s) => s.setActiveTab);
   const upsertVirtualPosition = useStore((s) => s.upsertVirtualPosition);
-  const openOrders = useStore((s) => s.openOrders);
 
   const [newVpName, setNewVpName] = useState('');
   const [newVpSymbol, setNewVpSymbol] = useState('BTCUSDT');
   const [newVpSide, setNewVpSide] = useState<'LONG' | 'SHORT'>('LONG');
   const [creatingVp, setCreatingVp] = useState(false);
   const [showCreateVp, setShowCreateVp] = useState(false);
+  const [accountLoading, setAccountLoading] = useState(false);
 
   useEffect(() => {
     connectWs();
   }, []);
 
+  useEffect(() => {
+    setAccountLoading(true);
+    api.getAccounts()
+      .then((data) => {
+        setAccounts(data.filter((acc) => acc.enabled));
+      })
+      .catch((err) => {
+        console.error('Load accounts failed', err);
+      })
+      .finally(() => setAccountLoading(false));
+  }, [setAccounts]);
+
+  const visibleVps = useMemo(
+    () => virtualPositions.filter((vp) => activeAccountId === 'ALL' || vp.account_id === activeAccountId),
+    [virtualPositions, activeAccountId]
+  );
+  const visibleOrders = useMemo(
+    () => openOrders.filter((o) => activeAccountId === 'ALL' || o.account_id === activeAccountId),
+    [openOrders, activeAccountId]
+  );
+
   async function createVP() {
-    if (!newVpName.trim()) return;
+    if (!newVpName.trim() || activeAccountId === 'ALL') return;
     setCreatingVp(true);
     try {
-      const vp = await api.createVP({ name: newVpName, symbol: newVpSymbol, positionSide: newVpSide });
+      const vp = await api.createVP({
+        name: newVpName,
+        symbol: newVpSymbol,
+        positionSide: newVpSide,
+        account_id: activeAccountId,
+      });
       upsertVirtualPosition(vp);
       setNewVpName('');
       setShowCreateVp(false);
@@ -51,7 +82,6 @@ export default function App() {
 
   return (
     <div style={{ minHeight: '100vh', background: '#0b0e11', color: '#eaecef' }}>
-      {/* Header */}
       <header
         style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -63,7 +93,6 @@ export default function App() {
           <span style={{ fontSize: 11, color: '#848e9c', marginLeft: 8 }}>USDT-M Futures</span>
         </div>
 
-        {/* Market tickers */}
         <div style={{ display: 'flex', gap: 24 }}>
           {SYMBOLS.map((sym) => {
             const tick = marketTicks[sym];
@@ -76,31 +105,46 @@ export default function App() {
           })}
         </div>
 
-        {/* Connection status */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <select
+            value={activeAccountId}
+            onChange={(e) => setActiveAccountId(e.target.value as string | 'ALL')}
+            disabled={accountLoading}
             style={{
-              width: 8, height: 8, borderRadius: '50%',
-              background: wsConnected ? '#0ecb81' : '#f6465d',
-              display: 'inline-block',
+              background: '#2b3139', border: '1px solid #363c45', borderRadius: 4,
+              color: '#eaecef', padding: '5px 8px', fontSize: 12, outline: 'none',
             }}
-          />
-          <span style={{ fontSize: 12, color: '#848e9c' }}>
-            {wsConnected ? '已连接' : '连接中...'}
-          </span>
+          >
+            <option value="ALL">All Accounts</option>
+            {accounts.map((acc) => (
+              <option key={acc.id} value={acc.id}>
+                {acc.name} ({acc.id})
+              </option>
+            ))}
+          </select>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span
+              style={{
+                width: 8, height: 8, borderRadius: '50%',
+                background: wsConnected ? '#0ecb81' : '#f6465d',
+                display: 'inline-block',
+              }}
+            />
+            <span style={{ fontSize: 12, color: '#848e9c' }}>
+              {wsConnected ? '已连接' : '连接中...'}
+            </span>
+          </div>
         </div>
       </header>
 
-      {/* Main layout */}
       <div style={{ display: 'flex', height: 'calc(100vh - 49px)' }}>
-        {/* Left panel — Order + VP management */}
         <aside
           style={{
             width: 300, minWidth: 280, padding: 16,
             borderRight: '1px solid #2b3139', overflowY: 'auto', background: '#161a1e',
           }}
         >
-          {/* Virtual Position manager */}
           <div
             style={{
               background: '#1e2329', border: '1px solid #2b3139',
@@ -113,16 +157,24 @@ export default function App() {
               <span style={{ fontWeight: 600, fontSize: 13 }}>虚拟仓位</span>
               <button
                 onClick={() => setShowCreateVp(!showCreateVp)}
+                disabled={activeAccountId === 'ALL'}
                 style={{
                   background: '#f0b90b', color: '#1e2329', border: 'none',
                   borderRadius: 3, padding: '3px 8px', cursor: 'pointer', fontSize: 11, fontWeight: 600,
+                  opacity: activeAccountId === 'ALL' ? 0.5 : 1,
                 }}
               >
                 + 创建
               </button>
             </div>
 
-            {showCreateVp && (
+            {activeAccountId === 'ALL' && (
+              <div style={{ color: '#848e9c', fontSize: 11, marginBottom: 8 }}>
+                All 视图为只读，请切换到账户后再创建或交易
+              </div>
+            )}
+
+            {showCreateVp && activeAccountId !== 'ALL' && (
               <div style={{ marginBottom: 8 }}>
                 <input
                   value={newVpName}
@@ -160,11 +212,10 @@ export default function App() {
               </div>
             )}
 
-            {/* VP list (compact) */}
-            {virtualPositions.length === 0 ? (
+            {visibleVps.length === 0 ? (
               <div style={{ color: '#848e9c', fontSize: 12 }}>暂无虚拟仓位</div>
             ) : (
-              virtualPositions.map((vp) => (
+              visibleVps.map((vp) => (
                 <div
                   key={vp.id}
                   style={{
@@ -172,7 +223,12 @@ export default function App() {
                     padding: '4px 0', borderBottom: '1px solid #2b3139', fontSize: 12,
                   }}
                 >
-                  <span style={{ color: '#eaecef' }}>{vp.name}</span>
+                  <span style={{ color: '#eaecef' }}>
+                    {vp.name}
+                    {activeAccountId === 'ALL' && (
+                      <span style={{ color: '#848e9c', marginLeft: 6 }}>[{vp.account_id}]</span>
+                    )}
+                  </span>
                   <span style={{ color: vp.positionSide === 'LONG' ? '#0ecb81' : '#f6465d' }}>
                     {vp.positionSide} {parseFloat(vp.net_qty).toFixed(3)}
                   </span>
@@ -181,18 +237,14 @@ export default function App() {
             )}
           </div>
 
-          {/* Order Panel */}
           <OrderPanel />
         </aside>
 
-        {/* Main area */}
         <main style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-          {/* Reconcile alert */}
           <div style={{ padding: '0 16px' }}>
             <ReconcilePanel />
           </div>
 
-          {/* Bottom tabs */}
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
             <div
               style={{
@@ -202,8 +254,8 @@ export default function App() {
             >
               {(
                 [
-                  { key: 'positions', label: `仓位 (${virtualPositions.filter((v) => parseFloat(v.net_qty) > 0).length})` },
-                  { key: 'open_orders', label: `挂单 (${openOrders.length})` },
+                  { key: 'positions', label: `仓位 (${visibleVps.filter((v) => parseFloat(v.net_qty) > 0).length})` },
+                  { key: 'open_orders', label: `挂单 (${visibleOrders.length})` },
                   { key: 'order_history', label: '成交历史' },
                 ] as const
               ).map(({ key, label }) => (
@@ -237,6 +289,9 @@ export default function App() {
 function OrderHistory() {
   const recentFills = useStore((s) => s.recentFills);
   const virtualPositions = useStore((s) => s.virtualPositions);
+  const activeAccountId = useStore((s) => s.activeAccountId);
+  const visibleFills = recentFills.filter((fill) => activeAccountId === 'ALL' || fill.account_id === activeAccountId);
+
   const { fmtPrice, fmtQty, fmtTime } = {
     fmtPrice: (v: string) => parseFloat(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
     fmtQty: (v: string) => parseFloat(v).toFixed(4),
@@ -251,20 +306,21 @@ function OrderHistory() {
 
   return (
     <div style={{ overflowX: 'auto' }}>
-      {recentFills.length === 0 ? (
+      {visibleFills.length === 0 ? (
         <div style={{ padding: 24, color: '#848e9c', textAlign: 'center' }}>暂无成交记录</div>
       ) : (
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ borderBottom: '1px solid #2b3139' }}>
-              {['合约', '方向', '数量', '成交价', 'VP', '已实现PnL', '手续费', '时间'].map((h) => (
+              {['账户', '合约', '方向', '数量', '成交价', 'VP', '已实现PnL', '手续费', '时间'].map((h) => (
                 <th key={h} style={{ ...cell, color: '#848e9c', fontWeight: 400, textAlign: 'left' }}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {recentFills.map((fill) => (
+            {visibleFills.map((fill) => (
               <tr key={fill.tradeId} style={{ borderBottom: '1px solid #1e2329' }}>
+                <td style={{ ...cell, color: '#848e9c' }}>{fill.account_id}</td>
                 <td style={cell}>{fill.symbol}</td>
                 <td style={{ ...cell, color: fill.side === 'BUY' ? '#0ecb81' : '#f6465d', fontWeight: 600 }}>
                   {fill.side} {fill.positionSide}
@@ -292,3 +348,4 @@ function OrderHistory() {
     </div>
   );
 }
+

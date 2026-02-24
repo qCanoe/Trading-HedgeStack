@@ -5,6 +5,16 @@ export type PositionSide = 'LONG' | 'SHORT';
 export type OrderSide = 'BUY' | 'SELL';
 export type OrderType = 'MARKET' | 'LIMIT' | 'STOP_MARKET' | 'STOP' | 'TAKE_PROFIT_MARKET' | 'TAKE_PROFIT';
 export type TimeInForce = 'GTC' | 'IOC' | 'FOK' | 'GTX';
+export type AccountType = 'MAIN' | 'SUB';
+
+export interface AccountInfo {
+  id: string;
+  name: string;
+  type: AccountType;
+  testnet: boolean;
+  enabled: boolean;
+  ws_status: 'CONNECTED' | 'DISCONNECTED' | 'UNKNOWN';
+}
 
 export interface TpSlConfig {
   tp_price: string | null;
@@ -18,6 +28,7 @@ export interface TpSlConfig {
 
 export interface VirtualPosition {
   id: string;
+  account_id: string;
   name: string;
   symbol: Symbol;
   positionSide: PositionSide;
@@ -31,6 +42,7 @@ export interface VirtualPosition {
 export interface OrderRecord {
   orderId: string;
   clientOrderId: string;
+  account_id: string;
   virtual_position_id: string;
   symbol: Symbol;
   side: OrderSide;
@@ -49,6 +61,7 @@ export interface FillRecord {
   tradeId: string;
   orderId: string;
   clientOrderId: string;
+  account_id: string;
   virtual_position_id: string | null;
   symbol: Symbol;
   side: OrderSide;
@@ -62,6 +75,7 @@ export interface FillRecord {
 }
 
 export interface ExternalPosition {
+  account_id: string;
   symbol: Symbol;
   positionSide: PositionSide;
   qty: string;
@@ -78,6 +92,7 @@ export interface MarketTick {
 }
 
 export interface ConsistencyStatus {
+  account_id: string;
   symbol: Symbol;
   positionSide: PositionSide;
   status: 'OK' | 'MISMATCH';
@@ -108,4 +123,6 @@ export interface StateSnapshot {
   recent_fills: FillRecord[];
   external_positions: ExternalPosition[];
   market: Record<string, MarketTick>;
+  consistency: ConsistencyStatus[];
+  reconcile: Record<string, Record<string, string>>;
 }

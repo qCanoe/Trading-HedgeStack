@@ -54,6 +54,7 @@ function handleEvent(event: WsEvent): void {
       store.setRecentFills(snap.recent_fills);
       store.setExternalPositions(snap.external_positions);
       store.setMarketTicks(snap.market);
+      store.setConsistencyStatuses(snap.consistency ?? []);
       break;
     }
     case 'VIRTUAL_POSITION_UPDATE':

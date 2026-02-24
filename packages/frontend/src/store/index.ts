@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type {
+  AccountInfo,
   VirtualPosition,
   OrderRecord,
   FillRecord,
@@ -9,6 +10,12 @@ import type {
 } from '../types/index.js';
 
 interface AppState {
+  // Accounts
+  accounts: AccountInfo[];
+  setAccounts: (accounts: AccountInfo[]) => void;
+  activeAccountId: string | 'ALL';
+  setActiveAccountId: (accountId: string | 'ALL') => void;
+
   // Connection
   wsConnected: boolean;
   setWsConnected: (v: boolean) => void;
@@ -41,6 +48,7 @@ interface AppState {
 
   // Consistency
   consistencyStatuses: Record<string, ConsistencyStatus>;
+  setConsistencyStatuses: (items: ConsistencyStatus[]) => void;
   updateConsistencyStatus: (s: ConsistencyStatus) => void;
 
   // TPSL sync
@@ -61,6 +69,12 @@ interface AppState {
 }
 
 export const useStore = create<AppState>((set) => ({
+  // Accounts
+  accounts: [],
+  setAccounts: (accounts) => set({ accounts }),
+  activeAccountId: 'ALL',
+  setActiveAccountId: (activeAccountId) => set({ activeAccountId }),
+
   // Connection
   wsConnected: false,
   setWsConnected: (v) => set({ wsConnected: v }),
@@ -129,11 +143,17 @@ export const useStore = create<AppState>((set) => ({
 
   // Consistency
   consistencyStatuses: {},
+  setConsistencyStatuses: (items) =>
+    set({
+      consistencyStatuses: Object.fromEntries(
+        items.map((item) => [`${item.account_id}_${item.symbol}_${item.positionSide}`, item])
+      ),
+    }),
   updateConsistencyStatus: (s) =>
     set((state) => ({
       consistencyStatuses: {
         ...state.consistencyStatuses,
-        [`${s.symbol}_${s.positionSide}`]: s,
+        [`${s.account_id}_${s.symbol}_${s.positionSide}`]: s,
       },
     })),
 
