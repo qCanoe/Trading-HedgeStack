@@ -5,6 +5,7 @@ import type { VirtualPosition, FillRecord } from '../../src/store/types.js';
 function makeVP(overrides: Partial<VirtualPosition> = {}): VirtualPosition {
   return {
     id: 'vp_test01',
+    account_id: 'main',
     name: 'Test',
     symbol: 'BTCUSDT',
     positionSide: 'LONG',
