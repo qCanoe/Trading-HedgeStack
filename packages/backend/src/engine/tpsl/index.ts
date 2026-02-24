@@ -20,7 +20,16 @@ export async function setTpSl(
   if (!vp) throw new Error(`VirtualPosition ${vpId} not found`);
   if (parseFloat(vp.net_qty) === 0) throw new Error('Cannot set TP/SL on empty position');
 
-  const qty = req.qty ?? vp.net_qty;
+  const netQty = parseFloat(vp.net_qty);
+  const percentQty = req.percent !== undefined ? (netQty * req.percent) / 100 : null;
+  const resolvedQty = req.qty !== undefined ? parseFloat(req.qty) : percentQty;
+  const qty = resolvedQty === null || Number.isNaN(resolvedQty) ? netQty : resolvedQty;
+  if (!Number.isFinite(qty) || qty <= 0) {
+    throw new Error('Invalid TP/SL qty: must be > 0');
+  }
+  if (qty > netQty) {
+    throw new Error('Invalid TP/SL qty: exceeds virtual position size');
+  }
 
   // Mark as SYNCING
   const syncing: TpSlConfig = {
@@ -53,7 +62,7 @@ export async function setTpSl(
         positionSide: vp.positionSide,
         type: 'TAKE_PROFIT_MARKET',
         stopPrice: syncing.tp_price,
-        quantity: qty,
+        quantity: qty.toFixed(8),
         reduceOnly: true,
         workingType: syncing.tp_trigger_type === 'LAST_PRICE' ? 'CONTRACT_PRICE' : 'MARK_PRICE',
         timeInForce: 'GTE_GTC',
@@ -69,7 +78,7 @@ export async function setTpSl(
         positionSide: vp.positionSide,
         type: 'STOP_MARKET',
         stopPrice: syncing.sl_price,
-        quantity: qty,
+        quantity: qty.toFixed(8),
         reduceOnly: true,
         workingType: syncing.sl_trigger_type === 'LAST_PRICE' ? 'CONTRACT_PRICE' : 'MARK_PRICE',
         timeInForce: 'GTE_GTC',

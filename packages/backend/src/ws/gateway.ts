@@ -40,14 +40,17 @@ export function broadcast(event: WsEvent): void {
 
 function sendStateSnapshot(socket: WebSocket): void {
   // Lazy import to avoid circular dependencies at module load time
-  import('../store/state.js').then(
+  Promise.all([import('../store/state.js'), import('../binance/ws.js')]).then(
     ({
+      0: {
       getAllVPs,
       getOpenOrders,
       getRecentFills,
       getExternalPositions,
       getAllMarketTicks,
       getConsistencyStatuses,
+      },
+      1: { getAllUserDataStreamInfos },
     }) => {
       const consistency = getConsistencyStatuses();
       const reconcile: Record<string, Record<string, string>> = {};
@@ -62,6 +65,7 @@ function sendStateSnapshot(socket: WebSocket): void {
         recent_fills: getRecentFills(),
         external_positions: getExternalPositions(),
         market: getAllMarketTicks(),
+        accounts_status: getAllUserDataStreamInfos(),
         consistency,
         reconcile,
       };

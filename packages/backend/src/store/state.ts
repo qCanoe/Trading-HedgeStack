@@ -23,6 +23,7 @@ import {
   dbInsertFill,
   dbSaveClientOrderMap,
   dbGetOrderMappingByClientOrderId,
+  getDb,
 } from './db.js';
 
 interface StateFilter {
@@ -30,8 +31,16 @@ interface StateFilter {
   symbol?: Symbol;
 }
 
-function positionKey(accountId: string, symbol: Symbol, side: PositionSide): string {
-  return `${accountId}_${symbol}_${side}`;
+export function positionKey(accountId: string, symbol: Symbol, side: PositionSide): string {
+  return JSON.stringify([accountId, symbol, side]);
+}
+
+export function decodePositionKey(key: string): [string, Symbol, PositionSide] {
+  const parsed = JSON.parse(key) as [string, Symbol, PositionSide];
+  if (!Array.isArray(parsed) || parsed.length !== 3) {
+    throw new Error(`Invalid position key: ${key}`);
+  }
+  return parsed;
 }
 
 function matchFilter(
@@ -179,3 +188,20 @@ export function getOrderMappingByClientOrderId(clientOrderId: string): ClientOrd
   return clientOrderMap.get(clientOrderId) ?? dbGetOrderMappingByClientOrderId(clientOrderId);
 }
 
+export function __dangerousResetStateForTests(): void {
+  virtualPositions.clear();
+  openOrders.clear();
+  externalPositions.clear();
+  marketTicks.clear();
+  consistencyStatus.clear();
+  recentFills.length = 0;
+  clientOrderMap.clear();
+
+  const db = getDb();
+  db.exec(`
+    DELETE FROM fills;
+    DELETE FROM orders;
+    DELETE FROM virtual_positions;
+    DELETE FROM client_order_map;
+  `);
+}
