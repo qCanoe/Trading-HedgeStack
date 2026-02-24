@@ -134,22 +134,34 @@ BTCUSDT SHORT qty=1.5    ←───────── VP "Hedge-1"      qty=1.
 
 ## 功能特性
 
-### MVP 范围
+### 核心功能
+
+**1. 币安下单 / 挂单**
+
+| 模块 | 功能 | 状态 |
+|------|------|------|
+| 下单面板 | Market / Limit，选择目标虚拟仓位 | ✅ 已完成 |
+| 挂单管理 | Open Orders 列表，按虚拟仓位筛选，撤单 | ✅ 已完成 |
+
+**2. 仓位管理 / 止盈 / 平仓**
+
+| 模块 | 功能 | 状态 |
+|------|------|------|
+| TP/SL | 每个虚拟仓位独立设置单档 TP + SL，cancel+create 同步 | ✅ 已完成 |
+| 仓位平仓 | 市价/限价，25/50/75/100% 或自定义数量，reduceOnly | ✅ 已完成 |
+| PnL 追踪 | 加权均价（WAC）、浮动 PnL（Mark Price）、已实现 PnL | ✅ 已完成 |
+
+**3. 多仓位管理界面**
 
 | 模块 | 功能 | 状态 |
 |------|------|------|
 | 虚拟仓位管理 | 创建 / 删除虚拟仓位，绑定 symbol + positionSide | ✅ 已完成 |
-| 开单 | Market / Limit，指定虚拟仓位 | ✅ 已完成 |
-| 挂单管理 | Open Orders 列表，按虚拟仓位筛选，撤单 | ✅ 已完成 |
-| TP/SL | 每个虚拟仓位独立设置单档 TP + SL，默认 TP=LAST / SL=MARK，cancel+create 同步 | ✅ 已完成 |
-| 仓位平仓 | 市价/限价，25/50/75/100% 或自定义数量，reduceOnly | ✅ 已完成 |
-| PnL 归因 | 加权均价（WAC）、浮动 PnL（Mark Price）、已实现 PnL（Fill 归因） | ✅ 已完成 |
+| 多仓位视图 | 同一交易对多个虚拟仓位并行展示，各自独立 PnL / TP/SL / 平仓操作 | ✅ 已完成 |
 | 实时数据 | Binance WS 用户流 + 行情流，后端统一推送前端 | ✅ 已完成 |
-| 对账 / 重建 | 外部持仓与 VP 总量对比、差额分配、UNASSIGNED 承接 | ✅ 已完成 |
-| 挂单改单 | cancel+new 方式改单 UI | 🔜 v0.2 |
 
-### MVP 明确不做
+### 明确不做
 
+- K 线图表（无 TradingView 或其他图表组件）
 - 修改杠杆 / 切换保证金模式（Cross/Isolated）
 - 多档 TP/SL（仅单档）
 - 止盈止损的"部分仓位"（仅全仓）
@@ -165,7 +177,6 @@ BTCUSDT SHORT qty=1.5    ←───────── VP "Hedge-1"      qty=1.
 | 后端框架 | **Fastify 5** | REST API + WS 混合服务（`@fastify/websocket`） |
 | 前端框架 | **React 18 + TypeScript** | SPA，Vite 构建 |
 | 状态管理 | **Zustand 5** | 轻量实时状态 |
-| 图表 | TradingView Lightweight Charts | K 线嵌入（v0.3 接入） |
 | Binance 连接 | 自封装（axios + ws） | REST 签名 + WS 用户流 + 行情流 |
 | 持久化 | **SQLite**（better-sqlite3）| 虚拟仓位账本持久化，WAL 模式 |
 | 包管理 | **pnpm 10** monorepo | workspace 管理 backend / frontend |
@@ -660,10 +671,6 @@ pnpm test:unit     # 仅单元测试（packages/backend）
 - [ ] 挂单改单 UI（cancel+new，前端交互层）
 - [ ] WS 断线期间成交的回补（REST 补单查询）
 - [ ] 集成测试：Fill 事件 → VP 账本更新端到端链路
-
-### v0.3 — 图表与体验
-
-- [ ] TradingView Lightweight Charts 嵌入（K 线 + 标记价格线）
 - [ ] 前端实时响应优化（< 150ms 本地感知）
 - [ ] Order History 完整视图（分页 / 筛选）
 - [ ] E2E 测试（Playwright）
