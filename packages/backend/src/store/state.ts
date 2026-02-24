@@ -9,6 +9,7 @@ import type {
   ExternalPosition,
   MarketTick,
   ConsistencyStatus,
+  ClientOrderMapping,
 } from './types.js';
 import type { Symbol, PositionSide } from '../config/env.js';
 import {
@@ -21,16 +22,35 @@ import {
   dbUpsertOrder,
   dbInsertFill,
   dbSaveClientOrderMap,
-  dbGetVpIdByClientOrderId,
+  dbGetOrderMappingByClientOrderId,
 } from './db.js';
+
+interface StateFilter {
+  account_id?: string;
+  symbol?: Symbol;
+}
+
+function positionKey(accountId: string, symbol: Symbol, side: PositionSide): string {
+  return `${accountId}_${symbol}_${side}`;
+}
+
+function matchFilter(
+  item: { account_id: string; symbol?: Symbol },
+  filter?: StateFilter
+): boolean {
+  if (!filter) return true;
+  if (filter.account_id && item.account_id !== filter.account_id) return false;
+  if (filter.symbol && item.symbol !== filter.symbol) return false;
+  return true;
+}
 
 // ─── In-memory maps ────────────────────────────────────────────────────────
 
 const virtualPositions = new Map<string, VirtualPosition>();
 const openOrders = new Map<string, OrderRecord>();
-const externalPositions = new Map<string, ExternalPosition>(); // key = `${symbol}_${positionSide}`
+const externalPositions = new Map<string, ExternalPosition>(); // key = `${accountId}_${symbol}_${positionSide}`
 const marketTicks = new Map<string, MarketTick>(); // key = symbol
-const consistencyStatus = new Map<string, ConsistencyStatus>(); // key = `${symbol}_${positionSide}`
+const consistencyStatus = new Map<string, ConsistencyStatus>(); // key = `${accountId}_${symbol}_${positionSide}`
 
 // ─── Initialise from DB ───────────────────────────────────────────────────
 
@@ -41,8 +61,8 @@ export function initState(): void {
 
 // ─── Virtual Positions ────────────────────────────────────────────────────
 
-export function getAllVPs(): VirtualPosition[] {
-  return Array.from(virtualPositions.values());
+export function getAllVPs(filter?: StateFilter): VirtualPosition[] {
+  return Array.from(virtualPositions.values()).filter((vp) => matchFilter(vp, filter));
 }
 
 export function getVP(id: string): VirtualPosition | undefined {
@@ -66,8 +86,8 @@ export function deleteVP(id: string): void {
 
 // ─── Orders ───────────────────────────────────────────────────────────────
 
-export function getOpenOrders(): OrderRecord[] {
-  return Array.from(openOrders.values());
+export function getOpenOrders(filter?: StateFilter): OrderRecord[] {
+  return Array.from(openOrders.values()).filter((order) => matchFilter(order, filter));
 }
 
 export function getOrder(orderId: string): OrderRecord | undefined {
@@ -95,8 +115,8 @@ export function addFill(fill: FillRecord): void {
   dbInsertFill(fill);
 }
 
-export function getRecentFills(): FillRecord[] {
-  return recentFills.slice();
+export function getRecentFills(filter?: StateFilter): FillRecord[] {
+  return recentFills.filter((fill) => matchFilter(fill, filter));
 }
 
 export function initFills(): void {
@@ -107,16 +127,19 @@ export function initFills(): void {
 // ─── External Positions ───────────────────────────────────────────────────
 
 export function setExternalPosition(pos: ExternalPosition): void {
-  const key = `${pos.symbol}_${pos.positionSide}`;
-  externalPositions.set(key, pos);
+  externalPositions.set(positionKey(pos.account_id, pos.symbol, pos.positionSide), pos);
 }
 
-export function getExternalPositions(): ExternalPosition[] {
-  return Array.from(externalPositions.values());
+export function getExternalPositions(filter?: StateFilter): ExternalPosition[] {
+  return Array.from(externalPositions.values()).filter((pos) => matchFilter(pos, filter));
 }
 
-export function getExternalPosition(symbol: Symbol, side: PositionSide): ExternalPosition | undefined {
-  return externalPositions.get(`${symbol}_${side}`);
+export function getExternalPosition(
+  accountId: string,
+  symbol: Symbol,
+  side: PositionSide
+): ExternalPosition | undefined {
+  return externalPositions.get(positionKey(accountId, symbol, side));
 }
 
 // ─── Market Ticks ─────────────────────────────────────────────────────────
@@ -136,22 +159,23 @@ export function getAllMarketTicks(): Record<string, MarketTick> {
 // ─── Consistency Status ───────────────────────────────────────────────────
 
 export function setConsistencyStatus(s: ConsistencyStatus): void {
-  consistencyStatus.set(`${s.symbol}_${s.positionSide}`, s);
+  consistencyStatus.set(positionKey(s.account_id, s.symbol, s.positionSide), s);
 }
 
-export function getConsistencyStatuses(): ConsistencyStatus[] {
-  return Array.from(consistencyStatus.values());
+export function getConsistencyStatuses(filter?: StateFilter): ConsistencyStatus[] {
+  return Array.from(consistencyStatus.values()).filter((item) => matchFilter(item, filter));
 }
 
 // ─── clientOrderId map ─────────────────────────────────────────────────────
 
-const clientOrderMap = new Map<string, string>(); // clientOrderId → vpId
+const clientOrderMap = new Map<string, ClientOrderMapping>();
 
-export function saveClientOrderMap(clientOrderId: string, vpId: string): void {
-  clientOrderMap.set(clientOrderId, vpId);
-  dbSaveClientOrderMap(clientOrderId, vpId);
+export function saveClientOrderMap(clientOrderId: string, mapping: ClientOrderMapping): void {
+  clientOrderMap.set(clientOrderId, mapping);
+  dbSaveClientOrderMap(clientOrderId, mapping);
 }
 
-export function getVpIdByClientOrderId(clientOrderId: string): string | null {
-  return clientOrderMap.get(clientOrderId) ?? dbGetVpIdByClientOrderId(clientOrderId);
+export function getOrderMappingByClientOrderId(clientOrderId: string): ClientOrderMapping | null {
+  return clientOrderMap.get(clientOrderId) ?? dbGetOrderMappingByClientOrderId(clientOrderId);
 }
+
