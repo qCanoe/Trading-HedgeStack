@@ -1,88 +1,36 @@
-/**
- * OrderPanel — place Market/Limit orders for a selected virtual position.
- */
-import { useState } from 'react';
+import { useState, type CSSProperties, type FormEvent } from 'react';
 import { useStore } from '../../store/index.js';
 import { api } from '../../utils/api.js';
-import type { PositionSide, OrderSide } from '../../types/index.js';
+import type { OrderSide, PlaceOrderType, PositionSide } from '../../types/index.js';
 
 const SYMBOLS = ['BTCUSDT', 'ETHUSDT'];
+const ORDER_TYPES: PlaceOrderType[] = ['LIMIT', 'MARKET', 'STOP', 'STOP_MARKET'];
 
-const s = {
-  panel: {
-    background: '#1e2329',
-    border: '1px solid #2b3139',
-    borderRadius: 4,
-    padding: 16,
-    minWidth: 280,
-  } as React.CSSProperties,
-  label: { color: '#848e9c', fontSize: 11, marginBottom: 4, display: 'block' } as React.CSSProperties,
-  input: {
-    width: '100%',
-    background: '#2b3139',
-    border: '1px solid #363c45',
-    borderRadius: 4,
-    color: '#eaecef',
-    padding: '6px 8px',
-    fontSize: 13,
-    outline: 'none',
-    marginBottom: 8,
-  } as React.CSSProperties,
-  select: {
-    width: '100%',
-    background: '#2b3139',
-    border: '1px solid #363c45',
-    borderRadius: 4,
-    color: '#eaecef',
-    padding: '6px 8px',
-    fontSize: 13,
-    marginBottom: 8,
-  } as React.CSSProperties,
-  tabBar: { display: 'flex', gap: 2, marginBottom: 12 } as React.CSSProperties,
-  tab: (active: boolean): React.CSSProperties => ({
-    flex: 1,
-    padding: '6px 0',
-    textAlign: 'center',
-    borderRadius: 4,
-    cursor: 'pointer',
-    fontSize: 13,
-    background: active ? '#2b3139' : 'transparent',
-    color: active ? '#eaecef' : '#848e9c',
-    border: 'none',
-  }),
-  sideBtn: (side: OrderSide, active: boolean): React.CSSProperties => ({
-    flex: 1,
-    padding: '8px 0',
-    borderRadius: 4,
-    cursor: 'pointer',
-    fontSize: 13,
-    fontWeight: 600,
-    border: 'none',
-    background:
-      active
-        ? side === 'BUY'
-          ? '#0ecb81'
-          : '#f6465d'
-        : side === 'BUY'
-        ? '#1a2e24'
-        : '#2e1a1e',
-    color: active ? '#fff' : side === 'BUY' ? '#0ecb81' : '#f6465d',
-  }),
-  submitBtn: (side: OrderSide): React.CSSProperties => ({
-    width: '100%',
-    padding: '10px 0',
-    borderRadius: 4,
-    cursor: 'pointer',
-    fontSize: 14,
-    fontWeight: 600,
-    border: 'none',
-    background: side === 'BUY' ? '#0ecb81' : '#f6465d',
-    color: '#fff',
-    marginTop: 4,
-  }),
-  error: { color: '#f6465d', fontSize: 12, marginTop: 4 } as React.CSSProperties,
-  success: { color: '#0ecb81', fontSize: 12, marginTop: 4 } as React.CSSProperties,
+const labelStyle: CSSProperties = {
+  fontSize: 10,
+  color: 'var(--text-2)',
+  fontWeight: 600,
+  letterSpacing: '0.07em',
+  textTransform: 'uppercase',
+  marginBottom: 5,
+  display: 'block',
 };
+
+export function needsPrice(type: PlaceOrderType): boolean {
+  return type === 'LIMIT' || type === 'STOP';
+}
+
+export function needsStopPrice(type: PlaceOrderType): boolean {
+  return type === 'STOP' || type === 'STOP_MARKET';
+}
+
+export function supportsTimeInForce(type: PlaceOrderType): boolean {
+  return type === 'LIMIT' || type === 'STOP';
+}
+
+export function isConditional(type: PlaceOrderType): boolean {
+  return type === 'STOP' || type === 'STOP_MARKET';
+}
 
 export default function OrderPanel() {
   const virtualPositions = useStore((s) => s.virtualPositions);
@@ -93,33 +41,64 @@ export default function OrderPanel() {
   const [symbol, setSymbol] = useState('BTCUSDT');
   const [positionSide, setPositionSide] = useState<PositionSide>('LONG');
   const [side, setSide] = useState<OrderSide>('BUY');
-  const [orderType, setOrderType] = useState<'MARKET' | 'LIMIT'>('LIMIT');
+  const [orderType, setOrderType] = useState<PlaceOrderType>('LIMIT');
   const [qty, setQty] = useState('');
   const [price, setPrice] = useState('');
+  const [stopPrice, setStopPrice] = useState('');
+  const [triggerPriceType, setTriggerPriceType] = useState<'LAST_PRICE' | 'MARK_PRICE'>(
+    'LAST_PRICE',
+  );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
+  const isReadOnly = activeAccountId === 'ALL';
+
   const filteredVPs = virtualPositions.filter(
     (vp) =>
-      vp.symbol === symbol
-      && vp.positionSide === positionSide
-      && (activeAccountId === 'ALL' || vp.account_id === activeAccountId)
+      vp.symbol === symbol &&
+      vp.positionSide === positionSide &&
+      (activeAccountId === 'ALL' || vp.account_id === activeAccountId),
   );
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    if (activeAccountId === 'ALL') {
-      setError('All 视图只读，请先选择单一账户');
+    if (isReadOnly) {
+      setError('All view is read-only. Select a single account.');
       return;
     }
-    if (!selectedVpId) { setError('Select a virtual position'); return; }
-    const selectedVp = virtualPositions.find((vp) => vp.id === selectedVpId);
-    if (!selectedVp) { setError('Selected virtual position not found'); return; }
-    if (!qty || parseFloat(qty) <= 0) { setError('Enter valid quantity'); return; }
-    if (orderType === 'LIMIT' && (!price || parseFloat(price) <= 0)) {
-      setError('Enter valid price'); return;
+    if (!selectedVpId) {
+      setError('Select a virtual position first.');
+      return;
     }
+    const selectedVp = virtualPositions.find((vp) => vp.id === selectedVpId);
+    if (!selectedVp) {
+      setError('Selected virtual position no longer exists.');
+      return;
+    }
+
+    const qtyNum = parseFloat(qty);
+    if (!Number.isFinite(qtyNum) || qtyNum <= 0) {
+      setError('qty must be a positive number.');
+      return;
+    }
+
+    if (needsPrice(orderType)) {
+      const priceNum = parseFloat(price);
+      if (!Number.isFinite(priceNum) || priceNum <= 0) {
+        setError(`price is required for ${orderType}.`);
+        return;
+      }
+    }
+
+    if (needsStopPrice(orderType)) {
+      const stopNum = parseFloat(stopPrice);
+      if (!Number.isFinite(stopNum) || stopNum <= 0) {
+        setError(`stopPrice is required for ${orderType}.`);
+        return;
+      }
+    }
+
     setError('');
     setSuccess('');
     setLoading(true);
@@ -132,10 +111,12 @@ export default function OrderPanel() {
         side,
         type: orderType,
         qty,
-        price: orderType === 'LIMIT' ? price : undefined,
-        timeInForce: orderType === 'LIMIT' ? 'GTC' : undefined,
+        price: needsPrice(orderType) ? price : undefined,
+        stopPrice: needsStopPrice(orderType) ? stopPrice : undefined,
+        triggerPriceType: isConditional(orderType) ? triggerPriceType : undefined,
+        timeInForce: supportsTimeInForce(orderType) ? 'GTC' : undefined,
       });
-      setSuccess(`Order placed: ${res.orderId} (${res.status})`);
+      setSuccess(`Placed ${orderType} order ${res.orderId.slice(-8)} (${res.status})`);
       setQty('');
     } catch (err: any) {
       setError(err.message);
@@ -144,112 +125,207 @@ export default function OrderPanel() {
     }
   }
 
+  const isBuy = side === 'BUY';
+
   return (
-    <div style={s.panel}>
-      <div style={{ fontWeight: 600, marginBottom: 12, color: '#eaecef' }}>下单</div>
-      {activeAccountId === 'ALL' && (
-        <div style={{ color: '#848e9c', fontSize: 11, marginBottom: 8 }}>
-          All 视图下单已禁用
+    <div style={{ padding: '14px 12px 18px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div
+        style={{
+          fontSize: 10,
+          fontWeight: 700,
+          color: 'var(--text-3)',
+          letterSpacing: '0.09em',
+          textTransform: 'uppercase',
+        }}
+      >
+        Place Order
+      </div>
+
+      {isReadOnly && (
+        <div
+          style={{
+            fontSize: 10,
+            color: 'var(--text-3)',
+            background: 'var(--bg-hover)',
+            padding: '5px 8px',
+            borderRadius: 'var(--radius-sm)',
+            border: '1px solid var(--border-mid)',
+          }}
+        >
+          All view order placement is disabled.
         </div>
       )}
 
-      {/* Symbol */}
-      <label style={s.label}>合约</label>
-      <select style={s.select} value={symbol} onChange={(e) => setSymbol(e.target.value)}>
+      <div className="hl-sym-tabs">
         {SYMBOLS.map((sym) => (
-          <option key={sym} value={sym}>{sym}</option>
-        ))}
-      </select>
-
-      {/* Order Type tabs */}
-      <div style={s.tabBar}>
-        {(['LIMIT', 'MARKET'] as const).map((t) => (
-          <button key={t} style={s.tab(orderType === t)} onClick={() => setOrderType(t)}>
-            {t}
+          <button
+            key={sym}
+            className={`hl-sym-btn${symbol === sym ? ' active' : ''}`}
+            onClick={() => setSymbol(sym)}
+          >
+            {sym.replace('USDT', '')}
           </button>
         ))}
       </div>
 
-      {/* Position Side */}
-      <label style={s.label}>方向</label>
-      <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
+      <div className="hl-seg">
+        {ORDER_TYPES.map((type) => (
+          <button
+            key={type}
+            className={`hl-seg-btn${orderType === type ? ' active' : ''}`}
+            onClick={() => setOrderType(type)}
+          >
+            {type}
+          </button>
+        ))}
+      </div>
+
+      <div className="hl-seg">
         {(['LONG', 'SHORT'] as PositionSide[]).map((ps) => (
           <button
             key={ps}
-            style={{
-              ...s.tab(positionSide === ps),
-              color: ps === 'LONG' ? '#0ecb81' : '#f6465d',
-              background: positionSide === ps ? '#2b3139' : 'transparent',
-              border: 'none',
-              cursor: 'pointer',
-              flex: 1,
-              padding: '6px 0',
-              borderRadius: 4,
+            className={`hl-seg-btn${positionSide === ps ? ` active ${ps.toLowerCase()}` : ''}`}
+            onClick={() => {
+              setPositionSide(ps);
+              setSide(ps === 'LONG' ? 'BUY' : 'SELL');
             }}
-            onClick={() => { setPositionSide(ps); setSide(ps === 'LONG' ? 'BUY' : 'SELL'); }}
           >
             {ps}
           </button>
         ))}
       </div>
 
-      {/* Side BUY/SELL */}
-      <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
-        <button style={s.sideBtn('BUY', side === 'BUY')} onClick={() => setSide('BUY')}>BUY / 开多</button>
-        <button style={s.sideBtn('SELL', side === 'SELL')} onClick={() => setSide('SELL')}>SELL / 开空</button>
+      <div style={{ display: 'flex', gap: 4 }}>
+        {(['BUY', 'SELL'] as OrderSide[]).map((s) => (
+          <button
+            key={s}
+            className={`hl-action-btn ${s.toLowerCase()}${side === s ? ' active' : ''}`}
+            onClick={() => setSide(s)}
+          >
+            {s === 'BUY' ? 'BUY / LONG' : 'SELL / SHORT'}
+          </button>
+        ))}
       </div>
 
-      {/* Virtual Position selector */}
-      <label style={s.label}>虚拟仓位</label>
-      <select
-        style={s.select}
-        value={selectedVpId ?? ''}
-        onChange={(e) => setSelectedVpId(e.target.value || null)}
-      >
-        <option value="">— 选择虚拟仓位 —</option>
-        {filteredVPs.map((vp) => (
-          <option key={vp.id} value={vp.id}>{vp.name}</option>
-        ))}
-      </select>
+      <div>
+        <label style={labelStyle}>Virtual Position</label>
+        <select
+          value={selectedVpId ?? ''}
+          onChange={(e) => setSelectedVpId(e.target.value || null)}
+          className="hl-select"
+          style={{ width: '100%', fontSize: 11 }}
+        >
+          <option value="">Select virtual position</option>
+          {filteredVPs.map((vp) => (
+            <option key={vp.id} value={vp.id}>
+              {vp.name}
+            </option>
+          ))}
+        </select>
+      </div>
 
-      <form onSubmit={handleSubmit}>
-        {/* Price (Limit only) */}
-        {orderType === 'LIMIT' && (
-          <>
-            <label style={s.label}>价格 (USDT)</label>
+      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {needsPrice(orderType) && (
+          <div>
+            <label style={labelStyle}>Price (USDT)</label>
             <input
-              style={s.input}
               type="number"
               step="0.01"
               value={price}
               onChange={(e) => setPrice(e.target.value)}
               placeholder="0.00"
+              className="hl-input"
+              style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}
             />
-          </>
+          </div>
         )}
 
-        {/* Quantity */}
-        <label style={s.label}>数量</label>
-        <input
-          style={s.input}
-          type="number"
-          step="0.001"
-          value={qty}
-          onChange={(e) => setQty(e.target.value)}
-          placeholder="0.000"
-        />
+        {needsStopPrice(orderType) && (
+          <div>
+            <label style={labelStyle}>Stop Price (USDT)</label>
+            <input
+              type="number"
+              step="0.01"
+              value={stopPrice}
+              onChange={(e) => setStopPrice(e.target.value)}
+              placeholder="0.00"
+              className="hl-input"
+              style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}
+            />
+          </div>
+        )}
+
+        {isConditional(orderType) && (
+          <div>
+            <label style={labelStyle}>Trigger Price Type</label>
+            <select
+              value={triggerPriceType}
+              onChange={(e) =>
+                setTriggerPriceType(e.target.value as 'LAST_PRICE' | 'MARK_PRICE')
+              }
+              className="hl-select"
+              style={{ width: '100%', fontSize: 11 }}
+            >
+              <option value="LAST_PRICE">LAST_PRICE</option>
+              <option value="MARK_PRICE">MARK_PRICE</option>
+            </select>
+          </div>
+        )}
+
+        <div>
+          <label style={labelStyle}>Quantity</label>
+          <input
+            type="number"
+            step="0.001"
+            value={qty}
+            onChange={(e) => setQty(e.target.value)}
+            placeholder="0.000"
+            className="hl-input"
+            style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}
+          />
+        </div>
 
         <button
           type="submit"
-          style={s.submitBtn(side)}
-          disabled={loading || activeAccountId === 'ALL'}
+          disabled={loading || isReadOnly}
+          className={`hl-submit ${isBuy ? 'buy' : 'sell'}`}
+          style={{ marginTop: 2 }}
         >
-          {loading ? '下单中...' : side === 'BUY' ? '买入 / Long' : '卖出 / Short'}
+          {loading ? 'Submitting...' : isBuy ? 'BUY / LONG' : 'SELL / SHORT'}
         </button>
       </form>
 
-      {error && <div style={s.error}>{error}</div>}
-      {success && <div style={s.success}>{success}</div>}
+      {error && (
+        <div
+          style={{
+            fontSize: 11,
+            color: 'var(--red)',
+            background: 'var(--red-dim)',
+            padding: '6px 9px',
+            borderRadius: 'var(--radius-sm)',
+            border: '1px solid var(--red-border)',
+            lineHeight: 1.4,
+          }}
+        >
+          {error}
+        </div>
+      )}
+
+      {success && (
+        <div
+          style={{
+            fontSize: 11,
+            color: 'var(--green)',
+            background: 'var(--green-dim)',
+            padding: '6px 9px',
+            borderRadius: 'var(--radius-sm)',
+            border: '1px solid var(--green-border)',
+            fontFamily: 'var(--font-mono)',
+          }}
+        >
+          {success}
+        </div>
+      )}
     </div>
   );
 }

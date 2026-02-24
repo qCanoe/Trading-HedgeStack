@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type {
   AccountInfo,
+  AccountStreamStatus,
   VirtualPosition,
   OrderRecord,
   FillRecord,
@@ -8,11 +9,14 @@ import type {
   MarketTick,
   ConsistencyStatus,
 } from '../types/index.js';
+import { consistencyKey } from '../utils/keys.js';
 
 interface AppState {
   // Accounts
   accounts: AccountInfo[];
   setAccounts: (accounts: AccountInfo[]) => void;
+  applyAccountStatus: (status: AccountStreamStatus) => void;
+  applyAccountStatuses: (statuses: AccountStreamStatus[]) => void;
   activeAccountId: string | 'ALL';
   setActiveAccountId: (accountId: string | 'ALL') => void;
 
@@ -72,6 +76,63 @@ export const useStore = create<AppState>((set) => ({
   // Accounts
   accounts: [],
   setAccounts: (accounts) => set({ accounts }),
+  applyAccountStatus: (status) =>
+    set((s) => {
+      const idx = s.accounts.findIndex((a) => a.id === status.account_id);
+      if (idx === -1) {
+        return {
+          accounts: [
+            ...s.accounts,
+            {
+              id: status.account_id,
+              name: status.account_id,
+              type: 'SUB',
+              testnet: false,
+              enabled: true,
+              ws_status: status.ws_status,
+              last_error: status.last_error,
+              last_connected_at: status.last_connected_at,
+            },
+          ],
+        };
+      }
+      const next = [...s.accounts];
+      next[idx] = {
+        ...next[idx],
+        ws_status: status.ws_status,
+        last_error: status.last_error,
+        last_connected_at: status.last_connected_at,
+      };
+      return { accounts: next };
+    }),
+  applyAccountStatuses: (statuses) =>
+    set((s) => {
+      if (statuses.length === 0) return {};
+      const byId = new Map(s.accounts.map((a) => [a.id, a] as const));
+      for (const status of statuses) {
+        const existing = byId.get(status.account_id);
+        if (existing) {
+          byId.set(status.account_id, {
+            ...existing,
+            ws_status: status.ws_status,
+            last_error: status.last_error,
+            last_connected_at: status.last_connected_at,
+          });
+        } else {
+          byId.set(status.account_id, {
+            id: status.account_id,
+            name: status.account_id,
+            type: 'SUB',
+            testnet: false,
+            enabled: true,
+            ws_status: status.ws_status,
+            last_error: status.last_error,
+            last_connected_at: status.last_connected_at,
+          });
+        }
+      }
+      return { accounts: Array.from(byId.values()) };
+    }),
   activeAccountId: 'ALL',
   setActiveAccountId: (activeAccountId) => set({ activeAccountId }),
 
@@ -125,7 +186,10 @@ export const useStore = create<AppState>((set) => ({
   upsertExternalPosition: (pos) =>
     set((s) => {
       const idx = s.externalPositions.findIndex(
-        (p) => p.symbol === pos.symbol && p.positionSide === pos.positionSide
+        (p) =>
+          p.account_id === pos.account_id
+          && p.symbol === pos.symbol
+          && p.positionSide === pos.positionSide
       );
       if (idx >= 0) {
         const next = [...s.externalPositions];
@@ -146,14 +210,14 @@ export const useStore = create<AppState>((set) => ({
   setConsistencyStatuses: (items) =>
     set({
       consistencyStatuses: Object.fromEntries(
-        items.map((item) => [`${item.account_id}_${item.symbol}_${item.positionSide}`, item])
+        items.map((item) => [consistencyKey(item.account_id, item.symbol, item.positionSide), item])
       ),
     }),
   updateConsistencyStatus: (s) =>
     set((state) => ({
       consistencyStatuses: {
         ...state.consistencyStatuses,
-        [`${s.account_id}_${s.symbol}_${s.positionSide}`]: s,
+        [consistencyKey(s.account_id, s.symbol, s.positionSide)]: s,
       },
     })),
 
