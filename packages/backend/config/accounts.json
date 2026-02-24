@@ -1,0 +1,25 @@
+{
+  "accounts": [
+    {
+      "id": "main",
+      "name": "Main Account",
+      "type": "MAIN",
+      "testnet": false,
+      "enabled": true
+    },
+    {
+      "id": "sub_a",
+      "name": "Sub Account A",
+      "type": "SUB",
+      "testnet": false,
+      "enabled": false
+    },
+    {
+      "id": "sub_b",
+      "name": "Sub Account B",
+      "type": "SUB",
+      "testnet": false,
+      "enabled": false
+    }
+  ]
+}

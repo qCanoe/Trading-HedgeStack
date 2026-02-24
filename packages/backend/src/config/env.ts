@@ -16,6 +16,7 @@ export const config = {
     apiSecret: required('BINANCE_API_SECRET'),
     testnet: optional('BINANCE_TESTNET', 'false') === 'true',
   },
+  accountsConfigPath: optional('ACCOUNTS_CONFIG_PATH', './config/accounts.json'),
   symbols: optional('SYMBOLS', 'BTCUSDT,ETHUSDT').split(',') as string[],
   port: parseInt(optional('PORT', '3001'), 10),
   dbPath: optional('DB_PATH', './data/db.sqlite'),
