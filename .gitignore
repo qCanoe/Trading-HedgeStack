@@ -9,3 +9,5 @@ data/
 coverage/
 .turbo/
 *.log
+# Prevent accidental JS emission into TS source tree.
+packages/frontend/src/**/*.js

@@ -1,685 +1,462 @@
 # Trading-HedgeStack
 
-> Binance USDT-M Futures 多虚拟仓位聚合终端 —— 在同一交易对上维护多个独立"虚拟仓位"，以完整的 Hedge Mode 映射与成交归因引擎，复刻并扩展 Binance 合约交易体验。
+> Binance USDT-M Futures 下单与仓位管理。  
+> **多 API（主账户 + 多子账户）统一下单、独立仓位归属、同界面集中管理**。
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
-[![Status: v0.1 Built](https://img.shields.io/badge/Status-v0.1%20Built-brightgreen.svg)]()
-[![Target: BTC/ETH](https://img.shields.io/badge/Instruments-BTCUSDT%20%7C%20ETHUSDT-blue.svg)]()
-[![Tests: 11/11](https://img.shields.io/badge/Tests-11%2F11%20passing-brightgreen.svg)]()
+[License: MIT](./LICENSE)
+[Status: v0.1 Live]()
+[Next: Multi-API Migration]()
 
 ---
 
 ## 目录
 
-- [项目概述](#项目概述)
-- [核心概念](#核心概念)
-- [架构总览](#架构总览)
-- [功能特性](#功能特性)
-- [技术栈（规划）](#技术栈规划)
-- [项目结构（规划）](#项目结构规划)
-- [前置条件](#前置条件)
-- [快速开始](#快速开始)
+- [项目目标（本次更新）](#项目目标本次更新)
+- [项目结构（重构后）](#项目结构重构后)
+- [当前代码状态（仓库真实情况）](#当前代码状态仓库真实情况)
+- [为什么必须迁移到多 API](#为什么必须迁移到多-api)
+- [目标架构（vNext）](#目标架构vnext)
+- [核心设计原则](#核心设计原则)
+- [多账户与仓位归属模型](#多账户与仓位归属模型)
+- [API 设计（迁移版）](#api-设计迁移版)
+- [数据模型（迁移版）](#数据模型迁移版)
 - [配置说明](#配置说明)
-- [API 参考](#api-参考)
-- [数据模型](#数据模型)
-- [实时事件](#实时事件)
-- [clientOrderId 规范](#clientorderid-规范)
-- [对账与修复](#对账与修复)
-- [开发指南](#开发指南)
+- [快速开始（当前 v0.1）](#快速开始当前-v01)
+- [迁移实施计划](#迁移实施计划)
+- [验收标准（与你的目标一一对应）](#验收标准与你的目标一一对应)
+- [测试策略](#测试策略)
+- [安全与风控](#安全与风控)
 - [路线图](#路线图)
 - [参与贡献](#参与贡献)
 - [许可证](#许可证)
 
 ---
 
-## 项目概述
+## 项目结构（重构后）
 
-Trading-HedgeStack 解决的核心问题：**Binance 合约 Hedge Mode 下，同一交易对的 Long/Short 只有两条真实持仓，但交易者往往同时持有多个不同逻辑的仓位（趋势单 / 波段单 / 对冲单）**，现有界面无法独立追踪每笔仓位的盈亏、TP/SL 与操作记录。
-
-本项目通过**虚拟仓位（Virtual Position）+ 成交归因（Fill Attribution）**的方式，在不改变 Binance 底层结算逻辑的前提下，为每一个虚拟仓位提供：
-
-- 独立的加权平均入场价（WAC）
-- 独立的已实现 / 浮动 PnL
-- 独立的 TP/SL 条件单绑定
-- 独立的平仓/加仓操作面板
-
----
-
-## 核心概念
-
-### Virtual Position（虚拟仓位）
-
-虚拟仓位是系统内部的账本单元，由 `(symbol, positionSide, name)` 三元组标识。多个虚拟仓位可以共享同一 Binance 真实持仓（同一 `symbol + positionSide`），系统通过 `clientOrderId` 编码追踪每笔成交归属于哪个虚拟仓位。
-
-```
-Binance 真实持仓（Hedge Mode）        系统虚拟仓位
-─────────────────────────────        ──────────────────────────────
-BTCUSDT LONG  qty=3.0    ←───────── VP "Long-Term"    qty=2.0
-                                     VP "Mid-Term"     qty=1.0
-
-BTCUSDT SHORT qty=1.5    ←───────── VP "Hedge-1"      qty=1.5
-```
-
-### WAC（加权平均成本）
-
-加仓时更新均价，减仓时仅计算 PnL，均价不变：
-
-```
-加仓: avg_entry = (old_qty × old_avg + fill_qty × fill_price) / (old_qty + fill_qty)
-减仓: realized_pnl += close_qty × (exit_price − avg_entry) × direction_sign
-      direction_sign: LONG=+1, SHORT=−1
-```
-
-### Fill-Driven Accounting（成交驱动账本）
-
-仓位状态的唯一真相来源是 **Binance 成交回报（fills）**，而非订单状态：
-
-- `ORDER NEW` → 不改变仓位
-- `PARTIALLY_FILLED` → 逐笔更新仓位
-- `FILLED` → 仓位更新完毕
-
----
-
-## 架构总览
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        Browser (SPA)                            │
-│  ┌──────────────┐  ┌───────────────┐  ┌─────────────────────┐  │
-│  │  下单面板     │  │  Positions    │  │  Orders / History   │  │
-│  │  (VP 选择器) │  │  (虚拟仓位行) │  │  (Open/Filled)      │  │
-│  └──────┬───────┘  └───────┬───────┘  └──────────┬──────────┘  │
-│         └──────────────────┴─────────────────────┘             │
-│                      REST + WebSocket                           │
-└─────────────────────────────┬───────────────────────────────────┘
-                              │
-┌─────────────────────────────▼───────────────────────────────────┐
-│                       Backend Server                            │
-│                                                                 │
-│  ┌─────────────┐  ┌──────────────┐  ┌──────────────────────┐   │
-│  │  REST API   │  │  WS Gateway  │  │  Attribution Engine  │   │
-│  │  /v1/...    │  │  (→ Browser) │  │  (Fill → VP 账本)    │   │
-│  └─────────────┘  └──────────────┘  └──────────────────────┘   │
-│                                                                 │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │                    State Store                          │   │
-│  │  virtual_positions  │  order_map  │  reconcile_status   │   │
-│  └─────────────────────────────────────────────────────────┘   │
-│                                                                 │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │              Binance Connector                          │   │
-│  │  REST (Order CRUD)  │  WS User Data Stream  │  Market   │   │
-│  └──────────────────────────────┬──────────────────────────┘   │
-└─────────────────────────────────┼───────────────────────────────┘
-                                  │
-┌─────────────────────────────────▼───────────────────────────────┐
-│               Binance USDT-M Futures (Hedge Mode)               │
-│         BTCUSDT Long / BTCUSDT Short / ETHUSDT Long / ...       │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-**数据流向：**
-
-```
-用户操作 → REST POST → 后端构造 Binance 订单（编码 clientOrderId）
-                      → Binance REST 下单
-                        → Binance WS User Data Stream 推送 FILL
-                          → Attribution Engine 解析 clientOrderId
-                            → 更新 VP 账本（WAC / PnL / TP/SL 同步）
-                              → 后端 WS 推送 VIRTUAL_POSITION_UPDATE
-                                → 前端实时刷新
-```
-
----
-
-## 功能特性
-
-### MVP 范围
-
-| 模块 | 功能 | 状态 |
-|------|------|------|
-| 虚拟仓位管理 | 创建 / 删除虚拟仓位，绑定 symbol + positionSide | ✅ 已完成 |
-| 开单 | Market / Limit，指定虚拟仓位 | ✅ 已完成 |
-| 挂单管理 | Open Orders 列表，按虚拟仓位筛选，撤单 | ✅ 已完成 |
-| TP/SL | 每个虚拟仓位独立设置单档 TP + SL，默认 TP=LAST / SL=MARK，cancel+create 同步 | ✅ 已完成 |
-| 仓位平仓 | 市价/限价，25/50/75/100% 或自定义数量，reduceOnly | ✅ 已完成 |
-| PnL 归因 | 加权均价（WAC）、浮动 PnL（Mark Price）、已实现 PnL（Fill 归因） | ✅ 已完成 |
-| 实时数据 | Binance WS 用户流 + 行情流，后端统一推送前端 | ✅ 已完成 |
-| 对账 / 重建 | 外部持仓与 VP 总量对比、差额分配、UNASSIGNED 承接 | ✅ 已完成 |
-| 挂单改单 | cancel+new 方式改单 UI | 🔜 v0.2 |
-
-### MVP 明确不做
-
-- 修改杠杆 / 切换保证金模式（Cross/Isolated）
-- 多档 TP/SL（仅单档）
-- 止盈止损的"部分仓位"（仅全仓）
-- 复杂止损策略（Trailing Stop 等）
-
----
-
-## 技术栈
-
-| 层级 | 选型 | 说明 |
-|------|------|------|
-| 后端运行时 | Node.js 22 (TypeScript) | 异步 I/O 适合 WS 高并发 |
-| 后端框架 | **Fastify 5** | REST API + WS 混合服务（`@fastify/websocket`） |
-| 前端框架 | **React 18 + TypeScript** | SPA，Vite 构建 |
-| 状态管理 | **Zustand 5** | 轻量实时状态 |
-| 图表 | TradingView Lightweight Charts | K 线嵌入（v0.3 接入） |
-| Binance 连接 | 自封装（axios + ws） | REST 签名 + WS 用户流 + 行情流 |
-| 持久化 | **SQLite**（better-sqlite3）| 虚拟仓位账本持久化，WAL 模式 |
-| 包管理 | **pnpm 10** monorepo | workspace 管理 backend / frontend |
-| 容器化 | Docker + docker-compose | 一键启动（nginx 反向代理） |
-
----
-
-## 项目结构
-
-```
+```text
 Trading-HedgeStack/
-├── packages/
-│   ├── backend/                        # 后端服务
-│   │   ├── src/
-│   │   │   ├── api/routes.ts           # REST 路由 (/v1/...)
-│   │   │   ├── ws/gateway.ts           # WebSocket Gateway（推送前端）
-│   │   │   ├── binance/
-│   │   │   │   ├── rest.ts             # Binance REST（HMAC 签名）
-│   │   │   │   └── ws.ts               # Binance WS（用户流 + 行情流）
-│   │   │   ├── engine/
-│   │   │   │   ├── attribution/
-│   │   │   │   │   ├── index.ts        # clientOrderId 编解码 + Fill 归因
-│   │   │   │   │   └── wac.ts          # WAC 计算引擎
-│   │   │   │   ├── tpsl/index.ts       # TP/SL 生命周期（cancel+create）
-│   │   │   │   └── reconcile/index.ts  # 一致性检测 + 重建
-│   │   │   ├── store/
-│   │   │   │   ├── types.ts            # 所有核心数据接口
-│   │   │   │   ├── db.ts               # SQLite 持久化（better-sqlite3）
-│   │   │   │   └── state.ts            # 内存状态 + DB 初始化
-│   │   │   ├── config/env.ts           # 环境变量
-│   │   │   └── index.ts                # 启动入口
-│   │   ├── tests/unit/                 # 单元测试（Vitest，11 tests）
-│   │   ├── Dockerfile
-│   │   └── package.json
-│   └── frontend/                       # 前端 SPA
-│       ├── src/
-│       │   ├── components/
-│       │   │   ├── OrderPanel/         # 下单面板（Market/Limit + VP 选择器）
-│       │   │   ├── Positions/          # 虚拟仓位行（PnL + 平仓 + TP/SL）
-│       │   │   ├── OpenOrders/         # 挂单管理（VP 筛选 + 撤单）
-│       │   │   ├── TpSlModal/          # TP/SL 设置弹窗
-│       │   │   └── ReconcilePanel/     # 对账面板（差额分配）
-│       │   ├── store/index.ts          # Zustand 全局状态
-│       │   ├── ws/client.ts            # 后端 WS 客户端（自动重连）
-│       │   ├── utils/
-│       │   │   ├── api.ts              # REST API 封装
-│       │   │   └── format.ts           # 价格 / PnL 格式化
-│       │   ├── types/index.ts          # 前端类型定义（与后端镜像）
-│       │   └── App.tsx                 # 根组件（布局 + 标签页）
-│       ├── Dockerfile
-│       ├── nginx.conf
-│       └── package.json
-├── docker-compose.yml
-├── pnpm-workspace.yaml
-├── tsconfig.base.json
-├── .env.example
-├── MVP（定版）.md                       # 原始需求规格
-├── README.md
-└── LICENSE
+├─ packages/
+│  ├─ backend/
+│  │  ├─ config/accounts.json            # 账户元数据（不含密钥）
+│  │  └─ src/
+│  │     ├─ accounts/registry.ts         # 账户配置加载与校验
+│  │     ├─ api/routes.ts                # REST 接口（含 account_id 兼容）
+│  │     ├─ binance/pool.ts              # 多账户 Binance REST client 池
+│  │     ├─ binance/ws.ts                # 多账户 UserStream + 市场流
+│  │     ├─ engine/attribution/          # fill 归因与 clientOrderId
+│  │     ├─ engine/reconcile/            # 对账检测与重分配
+│  │     ├─ store/db.ts                  # SQLite schema + 迁移
+│  │     └─ store/state.ts               # 内存状态（按 account_id 过滤）
+│  └─ frontend/
+│     └─ src/
+│        ├─ App.tsx                      # 账户切换器（All/单账户）
+│        ├─ components/                  # 各功能面板（All 只读）
+│        ├─ store/index.ts               # 全局状态（账户维度）
+│        └─ utils/api.ts                 # account_id 兼容 API 封装
+├─ .env.example
+└─ docker-compose.yml
 ```
 
 ---
 
-## 前置条件
+## 项目目标（本次更新）
 
-- **Binance 账户**：已开通 USDT-M 合约，且已开启 **Hedge Mode**（双向持仓）
-- **API Key**：具有合约交易权限（`FUTURES` 权限）；建议仅开放 IP 白名单
-- Node.js >= 18
-- pnpm >= 8 (推荐) 或 npm >= 9
-- Docker & docker-compose（可选，用于一键启动）
+你定义的核心目标已经明确为以下 3 点，本 README 以此为主线：
 
-> **安全警告**：API Key 和 Secret 绝对不得提交到 Git 仓库。请使用 `.env` 文件，并已在 `.gitignore` 中排除。
+1. **支持多 API 账户管理**（主账户 + 多个子账户）。
+2. **仓位独立归属与独立管理**：
+  - 主账户下的单，只影响主账户仓位。
+  - 子账户下的单，只影响对应子账户仓位。
+3. **统一管理界面**：在一个界面实时查看、筛选、操作所有账户仓位与订单。
 
----
-
-## 快速开始
-
-### 1. 克隆仓库
-
-```bash
-git clone https://github.com/qCanoe/Trading-HedgeStack.git
-cd Trading-HedgeStack
-```
-
-### 2. 配置环境变量
-
-```bash
-cp .env.example .env
-# 编辑 .env，填入 Binance API Key / Secret
-```
-
-`.env` 必填项：
-
-```dotenv
-BINANCE_API_KEY=your_api_key
-BINANCE_API_SECRET=your_api_secret
-BINANCE_TESTNET=false          # true=测试网, false=正式网
-PORT=3001                      # 后端端口
-```
-
-### 3. 安装依赖
-
-```bash
-pnpm install
-```
-
-### 4. 启动开发环境
-
-```bash
-# 同时启动后端 + 前端（开发模式）
-pnpm dev
-```
-
-或使用 Docker：
-
-```bash
-docker-compose up
-```
-
-### 5. 访问
-
-浏览器打开 `http://localhost:5173`（前端）；后端 API 运行于 `http://localhost:3001`。
+换句话说：项目从“单 API 虚拟仓位系统”升级为“**多账户交易与仓位控制台**”。
 
 ---
 
-## 配置说明
+## 当前代码状态（仓库真实情况）
 
-| 环境变量 | 必填 | 默认值 | 说明 |
-|----------|------|--------|------|
-| `BINANCE_API_KEY` | 是 | — | Binance API Key |
-| `BINANCE_API_SECRET` | 是 | — | Binance API Secret |
-| `BINANCE_TESTNET` | 否 | `false` | 是否使用测试网 |
-| `SYMBOLS` | 否 | `BTCUSDT,ETHUSDT` | 监听的合约品种 |
-| `PORT` | 否 | `3001` | 后端监听端口 |
-| `DB_PATH` | 否 | `./data/db.sqlite` | SQLite 数据库路径 |
-| `LOG_LEVEL` | 否 | `info` | 日志级别 |
+以下是当前仓库已落地能力（不是规划）：
+
+
+| 模块             | 当前状态  | 说明                                            |
+| -------------- | ----- | --------------------------------------------- |
+| Binance API 接入 | ✅ 已实现 | 单套 `BINANCE_API_KEY / BINANCE_API_SECRET`     |
+| 下单能力           | ✅ 已实现 | `MARKET` / `LIMIT` / `STOP` / `STOP_MARKET` 等 |
+| 虚拟仓位（VP）       | ✅ 已实现 | 单账户下多 VP，成交归因与 WAC 账本                         |
+| TP/SL 管理       | ✅ 已实现 | VP 级别，`cancel + create` 生命周期                  |
+| 对账与修复          | ✅ 已实现 | `external_qty` 与 VP 汇总差异检测 + 重分配              |
+| 前端总览           | ✅ 已实现 | 仓位、挂单、成交历史、对账面板                               |
+| 多 API / 子账户    | 🟡 基础已实现 | 已有 `account_id` 全链路基础与账户切换，账户 CRUD/告警待后续版本                         |
+
+
+> 结论：当前版本是很完整的 **v0.1 单 API 基础设施**，非常适合作为多 API 迁移基座。
 
 ---
 
-## API 参考
+## 为什么必须迁移到多 API
 
-所有接口均以 `/v1` 为前缀，返回 JSON，错误时返回标准结构：
+单 API 架构的关键限制：
 
-```json
-{ "error": "ERROR_CODE", "message": "human-readable description" }
-```
+- 只能绑定一个 Binance 账户，无法原生管理多个子账户。
+- 订单和仓位缺少账户维度，无法保证“哪个 API 下单就归属哪个仓位”。
+- 无法在统一界面做跨账户对比（风险暴露、PnL、保证金利用率）。
 
-### 状态查询
+你的目标本质上是把系统提升为 **Account-Scoped OMS + Position Manager**：
 
-#### `GET /v1/state`
+- OMS（Order Management System）：按 `account_id` 路由下单。
+- Position Manager：按 `account_id + symbol + positionSide` 维护仓位账本。
+- Unified Console：一个 UI 管全账户视图与操作。
 
-返回完整快照：外部真实持仓、所有虚拟仓位、挂单、最近成交、TP/SL 状态、对账状态。
+---
 
-**Response（示例）：**
+## 目标架构（vNext）
 
-```json
-{
-  "external_positions": [
-    { "symbol": "BTCUSDT", "positionSide": "LONG", "qty": "3.000", "avgEntryPrice": "95000.00", "unrealizedPnl": "450.00" }
-  ],
-  "virtual_positions": [
-    {
-      "id": "vp_abc123",
-      "name": "Long-Term",
-      "symbol": "BTCUSDT",
-      "positionSide": "LONG",
-      "net_qty": "2.000",
-      "avg_entry": "94500.00",
-      "unrealized_pnl": "310.00",
-      "realized_pnl": "120.50",
-      "tpsl": {
-        "tp_price": "100000.00",
-        "tp_trigger_type": "LAST_PRICE",
-        "sl_price": "90000.00",
-        "sl_trigger_type": "MARK_PRICE",
-        "tp_order_id": "1234567",
-        "sl_order_id": "1234568",
-        "sync_status": "OK"
-      }
-    }
-  ],
-  "open_orders": [],
-  "reconcile": { "BTCUSDT": { "LONG": "OK", "SHORT": "OK" }, "ETHUSDT": { "LONG": "OK", "SHORT": "OK" } }
-}
+```text
+┌──────────────────────────────────────────────────────────────────────┐
+│                           Frontend (Single UI)                      │
+│                                                                      │
+│  Account Switcher / Multi-Account Table / Unified Orders & Fills     │
+│                 (筛选: account / symbol / side / strategy)           │
+└───────────────────────────────┬──────────────────────────────────────┘
+                                │ REST + WS
+┌───────────────────────────────▼──────────────────────────────────────┐
+│                           Backend Server                              │
+│                                                                      │
+│  ┌──────────────────┐   ┌──────────────────┐   ┌──────────────────┐  │
+│  │ Account Registry │   │ Execution Router │   │ Attribution      │  │
+│  │ (API config)     │   │ (by account_id)  │   │ (fill -> VP账本) │  │
+│  └──────────────────┘   └──────────────────┘   └──────────────────┘  │
+│                                                                      │
+│  ┌──────────────────────────────────────────────────────────────────┐ │
+│  │ State + DB (all include account_id)                              │ │
+│  │ accounts / virtual_positions / orders / fills / client_order_map │ │
+│  └──────────────────────────────────────────────────────────────────┘ │
+│                                                                      │
+│  ┌──────────────────────────────────────────────────────────────────┐ │
+│  │ Binance Clients Pool                                              │ │
+│  │ main account client + sub account clients (REST + UserStream)     │ │
+│  └──────────────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────┬────────────────────────────────────┘
+                                  │
+                  Binance Main Account + Sub Accounts (USDT-M)
 ```
 
 ---
 
-### 虚拟仓位管理
+## 核心设计原则
 
-#### `POST /v1/virtual-positions`
-
-创建虚拟仓位。
-
-```json
-// Request
-{ "name": "Long-Term", "symbol": "BTCUSDT", "positionSide": "LONG" }
-
-// Response
-{ "id": "vp_abc123", "name": "Long-Term", "symbol": "BTCUSDT", "positionSide": "LONG", "net_qty": "0", "avg_entry": "0" }
-```
+1. **账户域强隔离**
+  所有订单、成交、仓位、TP/SL 都必须带 `account_id`，禁止跨账户串写。
+2. **路由显式化**
+  下单请求必须显式声明 `account_id`，后端据此选择对应 API 客户端。
+3. **账本可追溯**
+  `clientOrderId` 与映射表必须能反查 `account_id + virtual_position_id`。
+4. **统一界面，多维筛选**
+  同一 UI 内支持账户筛选、聚合视图、分账户操作。
+5. **兼容渐进迁移**
+  先兼容单 API，再引入多 API，不破坏现有 v0.1 用户习惯。
+6. **安全优先**
+  API 密钥不入库明文、不进 Git、支持最小权限与 IP 白名单。
 
 ---
 
-### 下单
+## 多账户与仓位归属模型
 
-#### `POST /v1/orders`
+### 账户层（真实仓位）
 
-向指定虚拟仓位下单。
+- 主账户真实仓位键：`main + BTCUSDT + LONG`
+- 子账户 A 真实仓位键：`sub_a + BTCUSDT + LONG`
+- 子账户 B 真实仓位键：`sub_b + BTCUSDT + LONG`
 
-```json
-// Request
-{
-  "virtual_position_id": "vp_abc123",
-  "symbol": "BTCUSDT",
-  "positionSide": "LONG",
-  "side": "BUY",
-  "type": "LIMIT",
-  "qty": "0.1",
-  "price": "94000.00",
-  "timeInForce": "GTC"
+三者彼此独立，不可混算。
+
+### 策略层（虚拟仓位）
+
+每个虚拟仓位必须绑定账户：
+
+```text
+Virtual Position Identity = (account_id, symbol, positionSide, name)
+```
+
+### 归属规则（你要求的核心）
+
+- 主账户下单 -> 只能更新主账户仓位与主账户 VP。
+- 子账户下单 -> 只能更新对应子账户仓位与对应子账户 VP。
+- 前端统一展示 -> 可以按账户分组，也可以跨账户总览。
+
+---
+
+## API 设计（迁移版）
+
+当前接口前缀保持 `/v1`，核心变化是逐步引入 `account_id`。
+
+### 1) 账户管理（新增）
+
+- `GET /v1/accounts`：获取账户列表（主账户 + 子账户）
+- `POST /v1/accounts`：新增账户 API 配置
+- `PATCH /v1/accounts/:id`：启用/禁用、备注更新
+- `DELETE /v1/accounts/:id`：删除账户（需无活动订单/策略）
+
+### 2) 状态快照（扩展）
+
+- `GET /v1/state` 支持参数：
+  - `account_id`（可选，不传表示全量）
+  - `symbol`（可选）
+
+### 3) VP 管理（扩展）
+
+- `POST /v1/virtual-positions`
+  - 新增必填：`account_id`
+
+### 4) 下单（扩展）
+
+- `POST /v1/orders`
+  - 新增必填：`account_id`
+  - 路由到对应 Binance client
+
+### 5) 平仓/TP-SL/对账（扩展）
+
+- `POST /v1/virtual-positions/:id/close`（由 VP 反查 `account_id`）
+- `POST /v1/virtual-positions/:id/tpsl`（同上）
+- `POST /v1/reconcile`（请求内新增 `account_id`）
+
+---
+
+## 数据模型（迁移版）
+
+以下是建议的目标结构（与当前模型兼容演进）：
+
+```ts
+interface AccountConfig {
+  id: string;                 // main | sub_a | sub_b ...
+  name: string;               // 展示名称
+  type: 'MAIN' | 'SUB';
+  apiKey: string;             // 建议使用加密存储
+  apiSecret: string;          // 建议使用加密存储
+  testnet: boolean;
+  enabled: boolean;
+  created_at: number;
 }
 
-// Response
-{ "orderId": "987654321", "clientOrderId": "VP-abc123-1708700000-001", "status": "NEW" }
-```
-
-**字段说明：**
-
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `virtual_position_id` | string | 是 | 归属的虚拟仓位 ID |
-| `symbol` | string | 是 | `BTCUSDT` \| `ETHUSDT` |
-| `positionSide` | string | 是 | `LONG` \| `SHORT` |
-| `side` | string | 是 | `BUY` \| `SELL` |
-| `type` | string | 是 | `MARKET` \| `LIMIT` \| `STOP_MARKET` \| `STOP` |
-| `qty` | string | 是 | 合约张数（字符串保精度） |
-| `price` | string | Limit 时必填 | 限价价格 |
-| `reduceOnly` | boolean | 否 | 默认 `false` |
-| `timeInForce` | string | Limit 时必填 | `GTC` \| `IOC` \| `FOK` |
-
----
-
-#### `POST /v1/orders/:orderId/cancel`
-
-撤销挂单。
-
-```json
-// Response
-{ "orderId": "987654321", "status": "CANCELED" }
-```
-
----
-
-### 平仓
-
-#### `POST /v1/virtual-positions/:id/close`
-
-对指定虚拟仓位执行平仓（自动加 `reduceOnly=true`）。
-
-```json
-// Request（全仓市价平）
-{ "type": "MARKET" }
-
-// Request（50% 限价平）
-{ "type": "LIMIT", "percent": 50, "price": "96000.00" }
-
-// Request（指定数量）
-{ "type": "MARKET", "qty": "0.5" }
-```
-
----
-
-### TP/SL 管理
-
-#### `POST /v1/virtual-positions/:id/tpsl`
-
-设置或更新虚拟仓位的止盈止损。后端采用 cancel+create 方式原子更新。
-
-```json
-// Request
-{
-  "tp_price": "100000.00",
-  "tp_trigger_type": "LAST_PRICE",
-  "sl_price": "90000.00",
-  "sl_trigger_type": "MARK_PRICE"
-}
-// qty 可选，默认为虚拟仓位当前 net_qty（全仓）
-```
-
-设置后 `tpsl.sync_status` 会经历 `SYNCING → OK` 状态，前端需监听 `TPSL_SYNC_STATUS` 事件。
-
----
-
-### 对账与重建
-
-#### `POST /v1/reconcile`
-
-将外部真实持仓数量重新分配给各虚拟仓位（修复手动操作导致的归因断链）。
-
-```json
-// Request
-{
-  "symbol": "BTCUSDT",
-  "positionSide": "LONG",
-  "assignments": [
-    { "virtual_position_id": "vp_abc123", "qty": "2.0" },
-    { "virtual_position_id": "vp_def456", "qty": "0.8" }
-  ]
-}
-// 如果 assignments 总和 < 外部 qty，差额自动归入 UNASSIGNED 虚拟仓位
-```
-
----
-
-## 数据模型
-
-### VirtualPosition
-
-```typescript
 interface VirtualPosition {
-  id: string;                    // 系统生成，形如 vp_xxxxxxxx
-  name: string;                  // 用户自定义名称
-  symbol: 'BTCUSDT' | 'ETHUSDT';
+  id: string;
+  account_id: string;         // 新增
+  name: string;
+  symbol: string;
   positionSide: 'LONG' | 'SHORT';
-  net_qty: string;               // 当前持仓量（正数）
-  avg_entry: string;             // 加权平均入场价
-  realized_pnl: string;         // 累计已实现 PnL（USDT）
+  net_qty: string;
+  avg_entry: string;
+  realized_pnl: string;
   tpsl: TpSlConfig | null;
-  created_at: number;           // Unix timestamp (ms)
+  created_at: number;
 }
 
-interface TpSlConfig {
-  tp_price: string | null;
-  tp_trigger_type: 'LAST_PRICE' | 'MARK_PRICE';
-  tp_order_id: string | null;   // Binance 订单 ID
-  sl_price: string | null;
-  sl_trigger_type: 'LAST_PRICE' | 'MARK_PRICE';
-  sl_order_id: string | null;
-  sync_status: 'OK' | 'SYNCING' | 'ERROR';
-}
-```
-
-### OrderRecord
-
-```typescript
 interface OrderRecord {
-  orderId: string;               // Binance 订单 ID
-  clientOrderId: string;        // VP-{vpShortId}-{ts}-{nonce}
+  orderId: string;
+  clientOrderId: string;
+  account_id: string;         // 新增
   virtual_position_id: string;
   symbol: string;
   side: 'BUY' | 'SELL';
   positionSide: 'LONG' | 'SHORT';
   type: string;
   qty: string;
-  price: string | null;
-  status: string;               // Binance 订单状态
-  reduceOnly: boolean;
+  status: string;
   created_at: number;
+  updated_at: number;
 }
 ```
 
+### `clientOrderId` 升级建议
+
+```text
+ACC-{accountShort}-VP-{vpShort}-{ts}-{nonce}
+示例: ACC-main-VP-a1b2c3-1739988888123-007
+```
+
+这样可以在异常恢复时快速定位账户域与 VP 归属。
+
 ---
 
-## 实时事件
+## 配置说明
 
-后端通过 WebSocket 向前端推送以下事件（统一格式）：
+### 当前 v0.2 Beta（兼容 v0.1）
 
-```typescript
-interface WsEvent {
-  type: EventType;
-  payload: unknown;
-  ts: number;   // 服务器 Unix timestamp (ms)
+`.env` 使用主账户 + 可选子账户密钥：
+
+```dotenv
+BINANCE_API_KEY=your_api_key_here
+BINANCE_API_SECRET=your_api_secret_here
+BINANCE_TESTNET=false
+ACCOUNTS_CONFIG_PATH=./config/accounts.json
+# BINANCE_API_KEY_SUB_A=...
+# BINANCE_API_SECRET_SUB_A=...
+# BINANCE_TESTNET_SUB_A=false
+SYMBOLS=BTCUSDT,ETHUSDT
+PORT=3001
+DB_PATH=./data/db.sqlite
+LOG_LEVEL=info
+```
+
+### vNext（目标）
+
+建议增加账户配置文件（示例）：
+
+```json
+{
+  "accounts": [
+    { "id": "main", "name": "Main Account", "type": "MAIN", "testnet": false, "enabled": true },
+    { "id": "sub_a", "name": "Sub Account A", "type": "SUB", "testnet": false, "enabled": true },
+    { "id": "sub_b", "name": "Sub Account B", "type": "SUB", "testnet": false, "enabled": true }
+  ]
 }
 ```
 
-| 事件类型 | 触发时机 | Payload |
-|----------|----------|---------|
-| `ORDER_UPSERT` | 订单状态变化 | `OrderRecord` |
-| `FILL` | 成交回报 | `FillRecord` |
-| `VIRTUAL_POSITION_UPDATE` | VP 账本变更（加仓/减仓/PnL 更新） | `VirtualPosition` |
-| `EXTERNAL_POSITION_UPDATE` | Binance 真实持仓变更 | `ExternalPosition` |
-| `TPSL_SYNC_STATUS` | TP/SL 同步状态变更 | `{ vp_id, status, tp_order_id?, sl_order_id? }` |
-| `CONSISTENCY_STATUS` | 对账状态更新 | `{ symbol, positionSide, status: 'OK' \| 'MISMATCH' }` |
-| `WS_RECONNECT` | Binance WS 重连通知 | `{ reason }` |
-
-前端收到 `CONSISTENCY_STATUS: MISMATCH` 时应**高亮显示并禁用**相关虚拟仓位的减仓与 TP/SL 设置操作，直到对账完成。
+> 密钥建议放在系统密钥管理或单独加密文件，不建议明文入库。
 
 ---
 
-## clientOrderId 规范
+## 快速开始（当前 v0.1）
 
-所有由本系统发出的订单，`clientOrderId` 遵循以下格式：
-
-```
-VP-{vpShortId}-{ts}-{nonce}
-
-示例: VP-abc123-1708700123456-001
-```
-
-| 段 | 说明 |
-|----|------|
-| `VP-` | 固定前缀，标识来自本系统 |
-| `{vpShortId}` | 虚拟仓位 ID 的前 6 字符 |
-| `{ts}` | 下单时 Unix timestamp (ms) |
-| `{nonce}` | 3 位序号，防止同毫秒冲突 |
-
-后端维护映射表 `clientOrderId → virtual_position_id`，当 Binance WS 推送成交回报时，通过解析 `clientOrderId` 立即完成成交归因。
-
----
-
-## 对账与修复
-
-**触发条件：** 以下操作会导致 VP 账本与 Binance 真实持仓不一致：
-
-- 在 Binance App / 其他客户端手动下单或平仓
-- 系统 WS 断线期间发生的成交
-- TP/SL 被触发但 WS 事件丢失
-
-**修复流程：**
-
-1. 系统检测到 `external_qty ≠ sum(VP.net_qty)` → 触发 `CONSISTENCY_STATUS: MISMATCH`
-2. 用户在"对账"面板看到：外部 qty、各 VP qty、差额
-3. 用户通过拖动/输入将外部 qty 分配给各 VP
-4. `POST /v1/reconcile` 提交分配方案
-5. 系统将分配结果写入账本，差额进入 `UNASSIGNED` VP
-6. `avg_entry` 以当前外部 entry price 初始化，PnL 从此刻重计，标记"已重置"
-
----
-
-## 开发指南
-
-### 本地开发启动
+### 1. 安装依赖
 
 ```bash
-# 安装依赖
-pnpm install
-
-# 同时启动后端（tsx watch）+ 前端（Vite）
-pnpm dev
-
-# 或分别启动
-pnpm --filter @hedgestack/backend dev   # http://localhost:3001
-pnpm --filter @hedgestack/frontend dev  # http://localhost:5173
+corepack enable
+corepack pnpm install
 ```
 
-### 代码规范
-
-- TypeScript strict mode
-- ESLint + Prettier（配置见 `.eslintrc` / `.prettierrc`）
-- 提交信息遵循 [Conventional Commits](https://www.conventionalcommits.org/)
-
-### 测试策略
-
-| 层级 | 工具 | 覆盖重点 | 状态 |
-|------|------|----------|------|
-| 单元测试 | Vitest | WAC 计算逻辑、`clientOrderId` 编解码 | ✅ 11 tests passing |
-| 集成测试 | Vitest + 模拟 WS | Fill 事件 → VP 账本更新链路 | 🔜 v0.2 |
-| E2E 测试 | Playwright | 核心下单 / 平仓 / TP/SL 操作流程 | 🔜 v0.3 |
+### 2. 配置环境变量
 
 ```bash
-pnpm test          # 运行所有测试
-pnpm test:unit     # 仅单元测试（packages/backend）
+cp .env.example .env
+# 填写 BINANCE_API_KEY / BINANCE_API_SECRET
 ```
 
-### 环境隔离
+### 3. 启动开发
 
-- 开发阶段优先使用 **Binance 测试网**（Testnet）验证逻辑
-- 设置 `BINANCE_TESTNET=true`，测试网 Base URL 不同，请参考 [Binance Testnet 文档](https://testnet.binancefuture.com)
+```bash
+corepack pnpm dev
+```
+
+- 前端：`http://localhost:5173`
+- 后端：`http://localhost:3001`
+
+Docker 启动：
+
+```bash
+docker-compose up --build
+```
+
+---
+
+## 迁移实施计划
+
+### Phase 0：Schema 准备（不改业务行为）
+
+- 数据表增加 `account_id` 字段（VP / orders / fills / client_order_map）。
+- 给现有数据默认回填 `account_id = main`。
+
+### Phase 1：后端多客户端池
+
+- 引入 `AccountRegistry` 与 `BinanceClientPool`。
+- 每个账户独立维护 REST client + user data stream。
+
+### Phase 2：路由与归因升级
+
+- 所有下单入口强制携带 `account_id`。
+- `clientOrderId` 编码加入账户前缀。
+- Fill 归因先校验账户域，再更新 VP。
+
+### Phase 3：前端统一界面
+
+- 增加账户切换器、账户分组表格、跨账户筛选。
+- 支持“全账户总览”和“单账户操作”两种视图。
+
+### Phase 4：对账与告警
+
+- 对账维度从 `(symbol, side)` 升级为 `(account_id, symbol, side)`。
+- 增加账户级异常告警（失联、权限失效、流断开）。
+
+### Phase 5：发布与回滚
+
+- 灰度：先主账户 + 1 子账户，再全量。
+- 保留单 API 回滚开关。
+
+---
+
+## 验收标准（与你的目标一一对应）
+
+### 1) 多子账户管理
+
+- 可新增/编辑/启停多个账户 API。
+- 每个账户连接状态与权限状态可见。
+
+### 2) 独立仓位管理
+
+- 主账户下单后，仅主账户仓位与 VP 变化。
+- 子账户下单后，仅对应子账户仓位与 VP 变化。
+- 禁止跨账户平仓、跨账户 TP/SL。
+
+### 3) 同一界面统一管理
+
+- 单页面可查看所有账户仓位、挂单、成交。
+- 可按账户筛选，也可跨账户聚合统计。
+- 关键操作（下单/平仓/TPSL）都可明确看到目标账户。
+
+---
+
+## 测试策略
+
+
+| 层级   | 目标                          | 状态                            |
+| ---- | --------------------------- | ----------------------------- |
+| 单元测试 | WAC、归因编码、账户路由逻辑             | v0.1 已有基础测试，需扩展 account_id 维度 |
+| 集成测试 | 多账户下单 -> fill 回报 -> VP 更新链路 | vNext 必做                      |
+| 回归测试 | 单 API 老流程不受影响               | vNext 必做                      |
+| E2E  | 主/子账户 UI 操作闭环               | vNext 必做                      |
+
+
+---
+
+## 安全与风控
+
+- API Key 最小权限原则，仅开启合约交易必要权限。
+- 强制 IP 白名单。
+- 禁止将 `.env`、账户密钥文件提交到仓库。
+- 关键操作记录审计日志：`operator`, `account_id`, `symbol`, `action`, `ts`。
+- 对每个账户做请求频率隔离，避免互相影响。
 
 ---
 
 ## 路线图
 
-### v0.1 — 骨架与核心引擎 ✅ 已完成
+### v0.1（当前）
 
-- [x] 项目工程化初始化（pnpm monorepo / TypeScript / Prettier / Docker）
-- [x] Binance 连接器（REST HMAC 签名 + WS 用户流 + markPrice 行情流）
-- [x] VP 数据结构与 WAC 引擎（加仓均价更新 / 减仓 realizedPnL）
-- [x] `clientOrderId` 编码（`VP-{id6}-{ts}-{nonce}`）与成交归因引擎
-- [x] SQLite 持久化（WAL 模式，VP / Order / Fill / clientOrderId 映射表）
-- [x] 完整 REST API（7 个端点，含 TP/SL、平仓、对账）
-- [x] TP/SL 生命周期管理（cancel+create，SYNCING→OK 状态机）
-- [x] 对账 / 重建引擎（一致性检测 + UNASSIGNED VP 承接）
-- [x] 后端 WS 网关（广播 7 类事件，连接时推送 STATE_SNAPSHOT）
-- [x] 前端 SPA：下单面板 / Positions / Open Orders / TP-SL 弹窗 / Reconcile 面板
-- [x] 单元测试 11/11 通过（WAC 引擎 + clientOrderId 编解码）
+- 单 API 下单、VP 归因、TP/SL、对账、前端总览已完成。
 
-### v0.2 — 稳定性与交互打磨
+### v0.2（迁移核心）
 
-- [ ] TP/SL 触发后自动从 VP 账本清除（`handleTpSlFilled` 集成）
-- [ ] 挂单改单 UI（cancel+new，前端交互层）
-- [ ] WS 断线期间成交的回补（REST 补单查询）
-- [ ] 集成测试：Fill 事件 → VP 账本更新端到端链路
+- 引入 `account_id` 全链路。
+- 多 API client pool。
+- 前端账户维度筛选与基础管理（All 只读，单账户可交易）。
 
-### v0.3 — 图表与体验
+### v0.3（稳定性）
 
-- [ ] TradingView Lightweight Charts 嵌入（K 线 + 标记价格线）
-- [ ] 前端实时响应优化（< 150ms 本地感知）
-- [ ] Order History 完整视图（分页 / 筛选）
-- [ ] E2E 测试（Playwright）
+- 多账户对账自动化。
+- WS 断线补偿与恢复。
+- 性能优化与大屏监控。
 
-### 后续（v1.0+）
+### v1.0（目标完成）
 
-- [ ] 多档 TP/SL
-- [ ] 部分仓位 TP/SL 数量设置
-- [ ] 更多合约品种支持
-- [ ] 移动端适配
+- 主账户 + 多子账户统一管理全面上线。
+- 仓位归属严格隔离，跨账户管理能力稳定可用。
 
 ---
 
 ## 参与贡献
 
-本项目目前处于早期开发阶段，暂不接受外部 PR。如有建议或 Bug 报告，欢迎提交 [Issue](https://github.com/qCanoe/Trading-HedgeStack/issues)。
+项目当前处于核心架构迁移阶段，建议先通过 Issue 讨论方案再提交 PR。
 
 ---
 
