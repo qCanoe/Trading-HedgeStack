@@ -88,6 +88,7 @@ export default function OrderPanel() {
   const virtualPositions = useStore((s) => s.virtualPositions);
   const selectedVpId = useStore((s) => s.selectedVpId);
   const setSelectedVpId = useStore((s) => s.setSelectedVpId);
+  const activeAccountId = useStore((s) => s.activeAccountId);
 
   const [symbol, setSymbol] = useState('BTCUSDT');
   const [positionSide, setPositionSide] = useState<PositionSide>('LONG');
@@ -100,12 +101,21 @@ export default function OrderPanel() {
   const [success, setSuccess] = useState('');
 
   const filteredVPs = virtualPositions.filter(
-    (vp) => vp.symbol === symbol && vp.positionSide === positionSide
+    (vp) =>
+      vp.symbol === symbol
+      && vp.positionSide === positionSide
+      && (activeAccountId === 'ALL' || vp.account_id === activeAccountId)
   );
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (activeAccountId === 'ALL') {
+      setError('All 视图只读，请先选择单一账户');
+      return;
+    }
     if (!selectedVpId) { setError('Select a virtual position'); return; }
+    const selectedVp = virtualPositions.find((vp) => vp.id === selectedVpId);
+    if (!selectedVp) { setError('Selected virtual position not found'); return; }
     if (!qty || parseFloat(qty) <= 0) { setError('Enter valid quantity'); return; }
     if (orderType === 'LIMIT' && (!price || parseFloat(price) <= 0)) {
       setError('Enter valid price'); return;
@@ -116,6 +126,7 @@ export default function OrderPanel() {
     try {
       const res = await api.placeOrder({
         virtual_position_id: selectedVpId,
+        account_id: selectedVp.account_id,
         symbol,
         positionSide,
         side,
@@ -136,6 +147,11 @@ export default function OrderPanel() {
   return (
     <div style={s.panel}>
       <div style={{ fontWeight: 600, marginBottom: 12, color: '#eaecef' }}>下单</div>
+      {activeAccountId === 'ALL' && (
+        <div style={{ color: '#848e9c', fontSize: 11, marginBottom: 8 }}>
+          All 视图下单已禁用
+        </div>
+      )}
 
       {/* Symbol */}
       <label style={s.label}>合约</label>
@@ -226,7 +242,7 @@ export default function OrderPanel() {
         <button
           type="submit"
           style={s.submitBtn(side)}
-          disabled={loading}
+          disabled={loading || activeAccountId === 'ALL'}
         >
           {loading ? '下单中...' : side === 'BUY' ? '买入 / Long' : '卖出 / Short'}
         </button>

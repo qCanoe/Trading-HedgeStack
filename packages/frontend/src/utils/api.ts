@@ -2,11 +2,13 @@
  * API client utilities for the backend REST API.
  */
 import type {
+  AccountInfo,
   VirtualPosition,
   OrderRecord,
   FillRecord,
   ExternalPosition,
   MarketTick,
+  ConsistencyStatus,
 } from '../types/index.js';
 
 const BASE = '/v1';
@@ -29,18 +31,28 @@ async function request<T>(
 }
 
 export const api = {
+  // Accounts
+  getAccounts: () => request<AccountInfo[]>('GET', '/accounts'),
+
   // State
-  getState: () => request<{
+  getState: (params?: { account_id?: string; symbol?: string }) => {
+    const qs = new URLSearchParams();
+    if (params?.account_id) qs.set('account_id', params.account_id);
+    if (params?.symbol) qs.set('symbol', params.symbol);
+    const suffix = qs.toString() ? `?${qs.toString()}` : '';
+    return request<{
     external_positions: ExternalPosition[];
     virtual_positions: VirtualPosition[];
     open_orders: OrderRecord[];
     recent_fills: FillRecord[];
     market: Record<string, MarketTick>;
+    consistency: ConsistencyStatus[];
     reconcile: Record<string, Record<string, string>>;
-  }>('GET', '/state'),
+    }>('GET', `/state${suffix}`);
+  },
 
   // Virtual Positions
-  createVP: (body: { name: string; symbol: string; positionSide: string }) =>
+  createVP: (body: { name: string; symbol: string; positionSide: string; account_id?: string }) =>
     request<VirtualPosition>('POST', '/virtual-positions', body),
   deleteVP: (id: string) =>
     request<{ success: boolean }>('DELETE', `/virtual-positions/${id}`),
@@ -48,6 +60,7 @@ export const api = {
   // Orders
   placeOrder: (body: {
     virtual_position_id: string;
+    account_id?: string;
     symbol: string;
     positionSide: string;
     side: string;
@@ -59,13 +72,13 @@ export const api = {
     timeInForce?: string;
   }) => request<{ orderId: string; clientOrderId: string; status: string }>('POST', '/orders', body),
 
-  cancelOrder: (orderId: string, symbol: string) =>
-    request<{ orderId: string; status: string }>('POST', `/orders/${orderId}/cancel`, { symbol }),
+  cancelOrder: (orderId: string, symbol: string, account_id?: string) =>
+    request<{ orderId: string; status: string }>('POST', `/orders/${orderId}/cancel`, { symbol, account_id }),
 
   // Close position
   closePosition: (
     vpId: string,
-    body: { type: 'MARKET' | 'LIMIT'; qty?: string; percent?: number; price?: string }
+    body: { type: 'MARKET' | 'LIMIT'; account_id?: string; qty?: string; percent?: number; price?: string }
   ) => request<{ orderId: string; clientOrderId: string; status: string }>('POST', `/virtual-positions/${vpId}/close`, body),
 
   // TPSL
@@ -73,6 +86,7 @@ export const api = {
     vpId: string,
     body: {
       tp_price?: string | null;
+      account_id?: string;
       tp_trigger_type?: string;
       sl_price?: string | null;
       sl_trigger_type?: string;
@@ -84,6 +98,7 @@ export const api = {
 
   // Reconcile
   reconcile: (body: {
+    account_id?: string;
     symbol: string;
     positionSide: string;
     assignments: Array<{ virtual_position_id: string; qty: string }>;

@@ -15,8 +15,11 @@ export default function ReconcilePanel() {
   const consistencyStatuses = useStore((s) => s.consistencyStatuses);
   const virtualPositions = useStore((s) => s.virtualPositions);
   const upsertVirtualPosition = useStore((s) => s.upsertVirtualPosition);
+  const activeAccountId = useStore((s) => s.activeAccountId);
 
-  const mismatches = Object.values(consistencyStatuses).filter((s) => s.status === 'MISMATCH');
+  const mismatches = Object.values(consistencyStatuses).filter(
+    (s) => s.status === 'MISMATCH' && (activeAccountId === 'ALL' || s.account_id === activeAccountId)
+  );
 
   if (mismatches.length === 0) return null;
 
@@ -35,14 +38,19 @@ export default function ReconcilePanel() {
       </div>
       {mismatches.map((mismatch) => (
         <MismatchItem
-          key={`${mismatch.symbol}_${mismatch.positionSide}`}
+          key={`${mismatch.account_id}_${mismatch.symbol}_${mismatch.positionSide}`}
+          accountId={mismatch.account_id}
           symbol={mismatch.symbol}
           positionSide={mismatch.positionSide as 'LONG' | 'SHORT'}
           externalQty={mismatch.external_qty}
           virtualQty={mismatch.virtual_qty}
           vps={virtualPositions.filter(
-            (v) => v.symbol === mismatch.symbol && v.positionSide === mismatch.positionSide
+            (v) =>
+              v.account_id === mismatch.account_id
+              && v.symbol === mismatch.symbol
+              && v.positionSide === mismatch.positionSide
           )}
+          readOnly={activeAccountId === 'ALL'}
           onReconciled={(updated) => updated.forEach(upsertVirtualPosition)}
         />
       ))}
@@ -51,15 +59,26 @@ export default function ReconcilePanel() {
 }
 
 interface MismatchItemProps {
+  accountId: string;
   symbol: string;
   positionSide: 'LONG' | 'SHORT';
   externalQty: string;
   virtualQty: string;
   vps: VirtualPosition[];
+  readOnly: boolean;
   onReconciled: (updated: VirtualPosition[]) => void;
 }
 
-function MismatchItem({ symbol, positionSide, externalQty, virtualQty, vps, onReconciled }: MismatchItemProps) {
+function MismatchItem({
+  accountId,
+  symbol,
+  positionSide,
+  externalQty,
+  virtualQty,
+  vps,
+  readOnly,
+  onReconciled,
+}: MismatchItemProps) {
   const [assignments, setAssignments] = useState<Record<string, string>>(
     Object.fromEntries(vps.map((v) => [v.id, v.net_qty]))
   );
@@ -77,7 +96,7 @@ function MismatchItem({ symbol, positionSide, externalQty, virtualQty, vps, onRe
         virtual_position_id: v.id,
         qty: assignments[v.id] ?? '0',
       }));
-      const res = await api.reconcile({ symbol, positionSide, assignments: asgn });
+      const res = await api.reconcile({ account_id: accountId, symbol, positionSide, assignments: asgn });
       onReconciled(res.updated);
     } catch (err: any) {
       setError(err.message);
@@ -89,7 +108,7 @@ function MismatchItem({ symbol, positionSide, externalQty, virtualQty, vps, onRe
   return (
     <div style={{ marginBottom: 12 }}>
       <div style={{ color: '#eaecef', fontSize: 13, marginBottom: 6 }}>
-        <strong>{symbol} {positionSide}</strong>
+        <strong>{accountId} / {symbol} {positionSide}</strong>
         <span style={{ color: '#848e9c', marginLeft: 8 }}>
           交易所: {externalQty} | 系统: {virtualQty}
         </span>
@@ -119,9 +138,10 @@ function MismatchItem({ symbol, positionSide, externalQty, virtualQty, vps, onRe
         </div>
       )}
       {error && <div style={{ color: '#f6465d', fontSize: 12 }}>{error}</div>}
+      {readOnly && <div style={{ color: '#848e9c', fontSize: 12 }}>All 视图仅浏览，请切换到账户后操作</div>}
       <button
         onClick={handleReconcile}
-        disabled={loading}
+        disabled={loading || readOnly}
         style={{
           marginTop: 8, background: '#f0b90b', color: '#1e2329', border: 'none',
           borderRadius: 4, padding: '6px 16px', cursor: 'pointer', fontWeight: 600, fontSize: 12,

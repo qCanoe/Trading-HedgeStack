@@ -11,22 +11,27 @@ const cell: React.CSSProperties = { padding: '8px 10px', fontSize: 12, whiteSpac
 export default function OpenOrders() {
   const openOrders = useStore((s) => s.openOrders);
   const virtualPositions = useStore((s) => s.virtualPositions);
+  const activeAccountId = useStore((s) => s.activeAccountId);
   const orderFilterVpId = useStore((s) => s.orderFilterVpId);
   const setOrderFilterVpId = useStore((s) => s.setOrderFilterVpId);
   const [cancelingId, setCancelingId] = useState<string | null>(null);
+  const filterableVps = virtualPositions.filter(
+    (vp) => activeAccountId === 'ALL' || vp.account_id === activeAccountId
+  );
 
+  const accountFiltered = openOrders.filter((o) => activeAccountId === 'ALL' || o.account_id === activeAccountId);
   const filtered = orderFilterVpId
-    ? openOrders.filter((o) => o.virtual_position_id === orderFilterVpId)
-    : openOrders;
+    ? accountFiltered.filter((o) => o.virtual_position_id === orderFilterVpId)
+    : accountFiltered;
 
   function vpName(vpId: string): string {
     return virtualPositions.find((v) => v.id === vpId)?.name ?? vpId.slice(0, 8);
   }
 
-  async function cancelOrder(orderId: string, symbol: string) {
+  async function cancelOrder(orderId: string, symbol: string, accountId: string) {
     setCancelingId(orderId);
     try {
-      await api.cancelOrder(orderId, symbol);
+      await api.cancelOrder(orderId, symbol, accountId);
     } catch (err: any) {
       alert(`撤单失败: ${err.message}`);
     } finally {
@@ -48,7 +53,7 @@ export default function OpenOrders() {
         >
           全部
         </button>
-        {virtualPositions.map((vp) => (
+        {filterableVps.map((vp) => (
           <button
             key={vp.id}
             onClick={() => setOrderFilterVpId(vp.id === orderFilterVpId ? null : vp.id)}
@@ -62,6 +67,11 @@ export default function OpenOrders() {
           </button>
         ))}
       </div>
+      {activeAccountId === 'ALL' && (
+        <div style={{ padding: '4px 10px', color: '#848e9c', fontSize: 11 }}>
+          All 视图仅浏览，撤单需切换到单账户
+        </div>
+      )}
 
       {filtered.length === 0 ? (
         <div style={{ padding: 24, color: '#848e9c', textAlign: 'center' }}>暂无挂单</div>
@@ -69,7 +79,7 @@ export default function OpenOrders() {
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ borderBottom: '1px solid #2b3139' }}>
-              {['合约', '方向', '类型', '价格', '数量', 'VP', '状态', '时间', '操作'].map((h) => (
+              {['账户', '合约', '方向', '类型', '价格', '数量', 'VP', '状态', '时间', '操作'].map((h) => (
                 <th key={h} style={{ ...cell, color: '#848e9c', fontWeight: 400, textAlign: 'left' }}>{h}</th>
               ))}
             </tr>
@@ -77,6 +87,7 @@ export default function OpenOrders() {
           <tbody>
             {filtered.map((order) => (
               <tr key={order.orderId} style={{ borderBottom: '1px solid #1e2329' }}>
+                <td style={{ ...cell, color: '#848e9c' }}>{order.account_id}</td>
                 <td style={cell}>{order.symbol}</td>
                 <td style={{ ...cell, color: order.side === 'BUY' ? '#0ecb81' : '#f6465d', fontWeight: 600 }}>
                   {order.side} {order.positionSide}
@@ -90,8 +101,8 @@ export default function OpenOrders() {
                 <td style={cell}>{fmtTime(order.created_at)}</td>
                 <td style={cell}>
                   <button
-                    onClick={() => cancelOrder(order.orderId, order.symbol)}
-                    disabled={cancelingId === order.orderId}
+                    onClick={() => cancelOrder(order.orderId, order.symbol, order.account_id)}
+                    disabled={cancelingId === order.orderId || activeAccountId === 'ALL'}
                     style={{
                       background: 'transparent', color: '#f6465d',
                       border: '1px solid #f6465d', borderRadius: 3,

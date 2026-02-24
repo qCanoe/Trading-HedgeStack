@@ -1,94 +1,154 @@
 /**
  * Binance WebSocket manager.
- * Manages two streams:
- *   1. User Data Stream (order updates, fills, position updates)
- *   2. Market streams (markPrice for each symbol)
+ * - User Data Stream per account
+ * - Shared market stream
  */
 import WebSocket from 'ws';
 import { config } from '../config/env.js';
 import type { BinanceRestClient } from './rest.js';
-import { processBinanceFillEvent } from '../engine/attribution/index.js';
-import type { BinanceFillEvent } from '../engine/attribution/index.js';
+import {
+  processBinanceFillEvent,
+  extractAccountIdFromClientOrderId,
+  type BinanceFillEvent,
+} from '../engine/attribution/index.js';
+import { handleTpSlFilled } from '../engine/tpsl/index.js';
+import { checkConsistency } from '../engine/reconcile/index.js';
 import {
   upsertOrder,
   setExternalPosition,
   setMarketTick,
+  getOrderMappingByClientOrderId,
+  getOrder,
 } from '../store/state.js';
 import { broadcast } from '../ws/gateway.js';
-import { checkConsistency } from '../engine/reconcile/index.js';
 import type { ExternalPosition, MarketTick, OrderRecord } from '../store/types.js';
-import type { Symbol, PositionSide } from '../config/env.js';
+import type { Symbol } from '../config/env.js';
 
 const WS_BASE_LIVE = 'wss://fstream.binance.com';
 const WS_BASE_TESTNET = 'wss://stream.binancefuture.com';
 
-function wsBase(): string {
-  return config.binance.testnet ? WS_BASE_TESTNET : WS_BASE_LIVE;
+type WsStatus = 'CONNECTED' | 'DISCONNECTED' | 'UNKNOWN';
+
+interface UserStreamContext {
+  accountId: string;
+  testnet: boolean;
+  rest: BinanceRestClient;
+  listenKey: string;
+  userDataWs: WebSocket | null;
+  listenKeyInterval: ReturnType<typeof setInterval> | null;
+  reconnectTimer: ReturnType<typeof setTimeout> | null;
+}
+
+function wsBase(testnet: boolean): string {
+  return testnet ? WS_BASE_TESTNET : WS_BASE_LIVE;
+}
+
+const userStreams = new Map<string, UserStreamContext>();
+const userStreamStatus = new Map<string, WsStatus>();
+
+function setStatus(accountId: string, status: WsStatus): void {
+  userStreamStatus.set(accountId, status);
+}
+
+export function getUserDataStreamStatus(accountId: string): WsStatus {
+  return userStreamStatus.get(accountId) ?? 'UNKNOWN';
 }
 
 // ─── User Data Stream ──────────────────────────────────────────────────────
 
-let listenKey: string | null = null;
-let userDataWs: WebSocket | null = null;
-let listenKeyInterval: ReturnType<typeof setInterval> | null = null;
-let userDataReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+export async function startUserDataStream(
+  accountId: string,
+  rest: BinanceRestClient,
+  testnet = config.binance.testnet
+): Promise<void> {
+  if (userStreams.has(accountId)) return;
 
-export async function startUserDataStream(rest: BinanceRestClient): Promise<void> {
-  listenKey = await rest.createListenKey();
-  connectUserDataWs(rest);
+  const listenKey = await rest.createListenKey();
+  const context: UserStreamContext = {
+    accountId,
+    testnet,
+    rest,
+    listenKey,
+    userDataWs: null,
+    listenKeyInterval: null,
+    reconnectTimer: null,
+  };
 
-  // Keep-alive every 30 minutes
-  listenKeyInterval = setInterval(async () => {
+  userStreams.set(accountId, context);
+  setStatus(accountId, 'DISCONNECTED');
+  connectUserDataWs(context);
+
+  context.listenKeyInterval = setInterval(async () => {
     try {
-      if (listenKey) await rest.keepAliveListenKey(listenKey);
+      await rest.keepAliveListenKey(context.listenKey);
     } catch {
-      // Renew on failure
-      try { listenKey = await rest.createListenKey(); } catch {}
+      try {
+        context.listenKey = await rest.createListenKey();
+      } catch {}
     }
   }, 30 * 60 * 1000);
 }
 
-function connectUserDataWs(rest: BinanceRestClient): void {
-  if (!listenKey) return;
-  const url = `${wsBase()}/ws/${listenKey}`;
-  userDataWs = new WebSocket(url);
+function connectUserDataWs(ctx: UserStreamContext): void {
+  const url = `${wsBase(ctx.testnet)}/ws/${ctx.listenKey}`;
+  ctx.userDataWs = new WebSocket(url);
 
-  userDataWs.on('open', () => {
-    console.log('[Binance WS] User data stream connected');
-    broadcast({ type: 'WS_RECONNECT', payload: { reason: 'user_data_connected' }, ts: Date.now() });
+  ctx.userDataWs.on('open', () => {
+    setStatus(ctx.accountId, 'CONNECTED');
+    console.log(`[Binance WS] User data connected (${ctx.accountId})`);
+    broadcast({
+      type: 'WS_RECONNECT',
+      payload: { reason: 'user_data_connected', account_id: ctx.accountId },
+      ts: Date.now(),
+    });
   });
 
-  userDataWs.on('message', (data: WebSocket.RawData) => {
+  ctx.userDataWs.on('message', (data: WebSocket.RawData) => {
     try {
       const msg = JSON.parse(data.toString());
-      handleUserDataEvent(msg, rest);
+      handleUserDataEvent(ctx.accountId, msg);
     } catch (err) {
-      console.error('[Binance WS] Parse error', err);
+      console.error(`[Binance WS] Parse error (${ctx.accountId})`, err);
     }
   });
 
-  userDataWs.on('close', () => {
-    console.warn('[Binance WS] User data stream closed — reconnecting in 3s');
-    broadcast({ type: 'WS_RECONNECT', payload: { reason: 'user_data_closed' }, ts: Date.now() });
-    userDataReconnectTimer = setTimeout(() => connectUserDataWs(rest), 3000);
+  ctx.userDataWs.on('close', () => {
+    setStatus(ctx.accountId, 'DISCONNECTED');
+    console.warn(`[Binance WS] User data closed (${ctx.accountId}) — reconnecting in 3s`);
+    broadcast({
+      type: 'WS_RECONNECT',
+      payload: { reason: 'user_data_closed', account_id: ctx.accountId },
+      ts: Date.now(),
+    });
+    ctx.reconnectTimer = setTimeout(() => connectUserDataWs(ctx), 3000);
   });
 
-  userDataWs.on('error', (err) => {
-    console.error('[Binance WS] User data error', err);
+  ctx.userDataWs.on('error', (err) => {
+    setStatus(ctx.accountId, 'DISCONNECTED');
+    console.error(`[Binance WS] User data error (${ctx.accountId})`, err);
   });
 }
 
-function handleUserDataEvent(msg: any, rest: BinanceRestClient): void {
+function handleUserDataEvent(streamAccountId: string, msg: any): void {
   switch (msg.e) {
     case 'ORDER_TRADE_UPDATE': {
       const o = msg.o;
+      const orderId = String(o.i);
       const now = Date.now();
+      const mapping = getOrderMappingByClientOrderId(o.c);
+      const existing = getOrder(orderId);
+      const resolvedAccountId =
+        mapping?.account_id
+        ?? existing?.account_id
+        ?? extractAccountIdFromClientOrderId(o.c)
+        ?? streamAccountId;
+      const resolvedVpId = mapping?.virtual_position_id ?? existing?.virtual_position_id ?? '';
 
-      // Update order record
       const order: OrderRecord = {
-        orderId: String(o.i),
+        orderId,
         clientOrderId: o.c,
-        virtual_position_id: '', // will be filled by attribution
+        account_id: resolvedAccountId,
+        virtual_position_id: resolvedVpId,
         symbol: o.s,
         side: o.S,
         positionSide: o.ps,
@@ -104,34 +164,39 @@ function handleUserDataEvent(msg: any, rest: BinanceRestClient): void {
       upsertOrder(order);
       broadcast({ type: 'ORDER_UPSERT', payload: order, ts: now });
 
-      // Process fill
-      const { fill, updatedVP } = processBinanceFillEvent(msg as BinanceFillEvent);
+      const { fill, updatedVP, status } = processBinanceFillEvent(
+        msg as BinanceFillEvent,
+        resolvedAccountId
+      );
       if (fill) {
         broadcast({ type: 'FILL', payload: fill, ts: now });
       }
       if (updatedVP) {
         broadcast({ type: 'VIRTUAL_POSITION_UPDATE', payload: updatedVP, ts: now });
       }
+
+      if (status === 'FILLED') {
+        handleTpSlFilled(orderId);
+      }
       break;
     }
 
     case 'ACCOUNT_UPDATE': {
-      // Position and balance updates
       const positions = msg.a?.P ?? [];
       for (const p of positions) {
         const extPos: ExternalPosition = {
+          account_id: streamAccountId,
           symbol: p.s,
           positionSide: p.ps,
           qty: Math.abs(parseFloat(p.pa)).toString(),
           avgEntryPrice: p.ep,
           unrealizedPnl: p.up ?? '0',
-          markPrice: '0', // will be updated from market stream
+          markPrice: '0',
         };
         setExternalPosition(extPos);
         broadcast({ type: 'EXTERNAL_POSITION_UPDATE', payload: extPos, ts: Date.now() });
       }
-      // Trigger consistency check
-      setTimeout(() => checkConsistency(), 500);
+      setTimeout(() => checkConsistency(streamAccountId), 500);
       break;
     }
 
@@ -144,11 +209,13 @@ function handleUserDataEvent(msg: any, rest: BinanceRestClient): void {
 
 let marketWs: WebSocket | null = null;
 let marketReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let marketTestnet = config.binance.testnet;
 
-export function startMarketStream(): void {
+export function startMarketStream(testnet = config.binance.testnet): void {
+  marketTestnet = testnet;
   const symbols = config.symbols.map((s) => `${s.toLowerCase()}@markPrice`);
   const combined = symbols.join('/');
-  const url = `${wsBase()}/stream?streams=${combined}`;
+  const url = `${wsBase(marketTestnet)}/stream?streams=${combined}`;
   connectMarketWs(url);
 }
 
@@ -187,9 +254,15 @@ function connectMarketWs(url: string): void {
 }
 
 export function stopAllStreams(): void {
-  if (listenKeyInterval) clearInterval(listenKeyInterval);
-  if (userDataReconnectTimer) clearTimeout(userDataReconnectTimer);
+  for (const [accountId, ctx] of userStreams.entries()) {
+    if (ctx.listenKeyInterval) clearInterval(ctx.listenKeyInterval);
+    if (ctx.reconnectTimer) clearTimeout(ctx.reconnectTimer);
+    ctx.userDataWs?.close();
+    setStatus(accountId, 'DISCONNECTED');
+  }
+  userStreams.clear();
+
   if (marketReconnectTimer) clearTimeout(marketReconnectTimer);
-  userDataWs?.close();
   marketWs?.close();
 }
+

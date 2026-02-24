@@ -1,87 +1,114 @@
 /**
  * Fill Attribution Engine
- * Parses clientOrderId to identify which VirtualPosition a fill belongs to,
+ * Parses clientOrderId to identify account + VirtualPosition mapping,
  * then applies the fill to the VP's book via WAC.
  */
-import { nanoid } from 'nanoid';
 import {
   getVP,
   updateVP,
   saveClientOrderMap,
-  getVpIdByClientOrderId,
+  getOrderMappingByClientOrderId,
   addFill,
 } from '../../store/state.js';
 import { applyFillToVP } from './wac.js';
 import type { FillRecord, VirtualPosition } from '../../store/types.js';
 import type { Symbol, PositionSide, OrderSide } from '../../config/env.js';
 
+function normalizeAccountId(accountId: string): string {
+  return accountId.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_') || 'main';
+}
+
 // ─── clientOrderId encoding ───────────────────────────────────────────────
 
 /**
- * Encode: VP-{vpShortId}-{ts}-{nonce}
- * Example: VP-abc123-1708700123456-001
+ * Encode: ACC-{accountId}-VP-{vpShortId}-{ts}-{nonce}
+ * Example: ACC-main-VP-abc123-1708700123456-001
  */
-export function encodeClientOrderId(vpId: string): string {
+export function encodeClientOrderId(vpId: string, accountId = 'main'): string {
   const shortId = vpId.slice(0, 6);
   const ts = Date.now();
   const nonce = String(Math.floor(Math.random() * 999) + 1).padStart(3, '0');
-  return `VP-${shortId}-${ts}-${nonce}`;
+  return `ACC-${normalizeAccountId(accountId)}-VP-${shortId}-${ts}-${nonce}`;
 }
 
 /**
- * Decode: extract vpShortId from clientOrderId.
- * Returns null for external orders (not prefixed with VP-).
+ * Decode vp short id from current and legacy formats.
  */
 export function decodeClientOrderId(clientOrderId: string): string | null {
-  if (!clientOrderId.startsWith('VP-')) return null;
-  const parts = clientOrderId.split('-');
-  // VP-{shortId}-{ts}-{nonce}  → parts[1] = shortId
-  return parts.length >= 4 ? parts[1] : null;
+  if (clientOrderId.startsWith('ACC-')) {
+    const parts = clientOrderId.split('-');
+    const vpIndex = parts.indexOf('VP');
+    if (vpIndex === -1 || parts.length < vpIndex + 2) return null;
+    return parts[vpIndex + 1] ?? null;
+  }
+
+  if (clientOrderId.startsWith('VP-')) {
+    const parts = clientOrderId.split('-');
+    return parts.length >= 4 ? parts[1] : null;
+  }
+
+  return null;
 }
 
 /**
- * Register a clientOrderId → vpId mapping before placing an order.
+ * Decode account id from current and legacy formats.
  */
-export function registerOrderMapping(clientOrderId: string, vpId: string): void {
-  saveClientOrderMap(clientOrderId, vpId);
+export function extractAccountIdFromClientOrderId(clientOrderId: string): string | null {
+  if (clientOrderId.startsWith('ACC-')) {
+    const parts = clientOrderId.split('-');
+    return parts.length >= 2 ? normalizeAccountId(parts[1]) : null;
+  }
+  if (clientOrderId.startsWith('VP-')) {
+    return 'main';
+  }
+  return null;
+}
+
+/**
+ * Register a clientOrderId mapping before placing an order.
+ */
+export function registerOrderMapping(clientOrderId: string, accountId: string, vpId: string): void {
+  saveClientOrderMap(clientOrderId, {
+    account_id: normalizeAccountId(accountId),
+    virtual_position_id: vpId,
+  });
 }
 
 // ─── Binance WS Fill event shape ──────────────────────────────────────────
 
 export interface BinanceFillEvent {
-  /** Event type = "ORDER_TRADE_UPDATE" */
   e: string;
-  /** Event time */
   E: number;
-  /** Order data */
   o: {
-    s: string;   // symbol
-    c: string;   // clientOrderId
-    i: number;   // orderId
-    S: string;   // side BUY/SELL
-    ps: string;  // positionSide LONG/SHORT
-    l: string;   // last filled qty
-    L: string;   // last filled price
-    T: number;   // trade time
-    t: number;   // trade id
-    n: string;   // commission
-    N: string;   // commission asset
-    rp: string;  // realized profit
-    X: string;   // order status
-    q: string;   // original qty
-    p: string;   // price
-    sp?: string; // stop price
-    R: boolean;  // reduceOnly
-    ot: string;  // order type
-    tf: string;  // timeInForce
+    s: string;
+    c: string;
+    i: number;
+    S: string;
+    ps: string;
+    l: string;
+    L: string;
+    T: number;
+    t: number;
+    n: string;
+    N: string;
+    rp: string;
+    X: string;
+    q: string;
+    p: string;
+    sp?: string;
+    R: boolean;
+    ot: string;
+    tf: string;
   };
 }
 
 /**
- * Process an ORDER_TRADE_UPDATE event from Binance WS.
- * Returns the updated VP if a fill was attributed, otherwise null.
+ * Process ORDER_TRADE_UPDATE and update fill + VP book.
  */
-export function processBinanceFillEvent(event: BinanceFillEvent): {
+export function processBinanceFillEvent(
+  event: BinanceFillEvent,
+  streamAccountId = 'main'
+): {
   fill: FillRecord | null;
   updatedVP: VirtualPosition | null;
   orderId: string;
@@ -91,7 +118,6 @@ export function processBinanceFillEvent(event: BinanceFillEvent): {
   const orderId = String(o.i);
   const status = o.X;
 
-  // Only process fills (PARTIALLY_FILLED or FILLED)
   if (!['PARTIALLY_FILLED', 'FILLED'].includes(status)) {
     return { fill: null, updatedVP: null, orderId, status };
   }
@@ -101,13 +127,17 @@ export function processBinanceFillEvent(event: BinanceFillEvent): {
     return { fill: null, updatedVP: null, orderId, status };
   }
 
-  // Resolve virtual_position_id
-  const vpId = getVpIdByClientOrderId(o.c);
+  const mapping = getOrderMappingByClientOrderId(o.c);
+  const accountId = mapping?.account_id
+    ?? extractAccountIdFromClientOrderId(o.c)
+    ?? normalizeAccountId(streamAccountId);
+  const vpId = mapping?.virtual_position_id ?? null;
 
   const fill: FillRecord = {
     tradeId: String(o.t),
     orderId,
     clientOrderId: o.c,
+    account_id: accountId,
     virtual_position_id: vpId,
     symbol: o.s as Symbol,
     side: o.S as OrderSide,
@@ -125,7 +155,7 @@ export function processBinanceFillEvent(event: BinanceFillEvent): {
   let updatedVP: VirtualPosition | null = null;
   if (vpId) {
     const vp = getVP(vpId);
-    if (vp) {
+    if (vp && vp.account_id === accountId) {
       updatedVP = applyFillToVP(vp, fill);
       updateVP(updatedVP);
     }
@@ -133,3 +163,4 @@ export function processBinanceFillEvent(event: BinanceFillEvent): {
 
   return { fill, updatedVP, orderId, status };
 }
+

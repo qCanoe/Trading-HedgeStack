@@ -1,5 +1,16 @@
 import type { PositionSide, Symbol, OrderSide, OrderType, TimeInForce } from '../config/env.js';
 
+export type AccountType = 'MAIN' | 'SUB';
+
+export interface AccountInfo {
+  id: string;
+  name: string;
+  type: AccountType;
+  testnet: boolean;
+  enabled: boolean;
+  ws_status: 'CONNECTED' | 'DISCONNECTED' | 'UNKNOWN';
+}
+
 // ─── Virtual Position ──────────────────────────────────────────────────────
 
 export interface TpSlConfig {
@@ -14,6 +25,7 @@ export interface TpSlConfig {
 
 export interface VirtualPosition {
   id: string;
+  account_id: string;
   name: string;
   symbol: Symbol;
   positionSide: PositionSide;
@@ -29,6 +41,7 @@ export interface VirtualPosition {
 export interface OrderRecord {
   orderId: string;
   clientOrderId: string;
+  account_id: string;
   virtual_position_id: string;
   symbol: Symbol;
   side: OrderSide;
@@ -49,6 +62,7 @@ export interface FillRecord {
   tradeId: string;
   orderId: string;
   clientOrderId: string;
+  account_id: string;
   virtual_position_id: string | null;
   symbol: Symbol;
   side: OrderSide;
@@ -64,6 +78,7 @@ export interface FillRecord {
 // ─── External Position ────────────────────────────────────────────────────
 
 export interface ExternalPosition {
+  account_id: string;
   symbol: Symbol;
   positionSide: PositionSide;
   qty: string;
@@ -101,6 +116,7 @@ export interface WsEvent<T = unknown> {
 }
 
 export interface ConsistencyStatus {
+  account_id: string;
   symbol: Symbol;
   positionSide: PositionSide;
   status: 'OK' | 'MISMATCH';
@@ -114,10 +130,12 @@ export interface CreateVirtualPositionRequest {
   name: string;
   symbol: Symbol;
   positionSide: PositionSide;
+  account_id?: string;
 }
 
 export interface PlaceOrderRequest {
   virtual_position_id: string;
+  account_id?: string;
   symbol: Symbol;
   positionSide: PositionSide;
   side: OrderSide;
@@ -131,12 +149,14 @@ export interface PlaceOrderRequest {
 
 export interface ClosePositionRequest {
   type: 'MARKET' | 'LIMIT';
+  account_id?: string;
   qty?: string;
   percent?: number;
   price?: string;
 }
 
 export interface SetTpSlRequest {
+  account_id?: string;
   tp_price?: string | null;
   tp_trigger_type?: 'LAST_PRICE' | 'MARK_PRICE';
   sl_price?: string | null;
@@ -149,7 +169,13 @@ export interface ReconcileAssignment {
   qty: string;
 }
 
+export interface ClientOrderMapping {
+  account_id: string;
+  virtual_position_id: string;
+}
+
 export interface ReconcileRequest {
+  account_id?: string;
   symbol: Symbol;
   positionSide: PositionSide;
   assignments: ReconcileAssignment[];
@@ -163,5 +189,6 @@ export interface StateSnapshot {
   open_orders: OrderRecord[];
   recent_fills: FillRecord[];
   market: Record<string, MarketTick>;
+  consistency: ConsistencyStatus[];
   reconcile: Record<string, Record<string, 'OK' | 'MISMATCH'>>;
 }

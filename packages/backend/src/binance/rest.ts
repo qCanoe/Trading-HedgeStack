@@ -50,16 +50,15 @@ export interface BinanceFuturesPosition {
 
 export class BinanceRestClient {
   private http: AxiosInstance;
-  private apiKey: string;
   private apiSecret: string;
 
-  constructor() {
-    const base = config.binance.testnet ? BASE_TESTNET : BASE_LIVE;
-    this.apiKey = config.binance.apiKey;
-    this.apiSecret = config.binance.apiSecret;
+  constructor(opts?: { apiKey: string; apiSecret: string; testnet: boolean }) {
+    const base = (opts?.testnet ?? config.binance.testnet) ? BASE_TESTNET : BASE_LIVE;
+    const apiKey = opts?.apiKey ?? config.binance.apiKey;
+    this.apiSecret = opts?.apiSecret ?? config.binance.apiSecret;
     this.http = axios.create({
       baseURL: base,
-      headers: { 'X-MBX-APIKEY': this.apiKey },
+      headers: { 'X-MBX-APIKEY': apiKey },
       timeout: 10_000,
     });
   }

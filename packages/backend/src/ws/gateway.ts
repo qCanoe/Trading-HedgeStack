@@ -41,13 +41,29 @@ export function broadcast(event: WsEvent): void {
 function sendStateSnapshot(socket: WebSocket): void {
   // Lazy import to avoid circular dependencies at module load time
   import('../store/state.js').then(
-    ({ getAllVPs, getOpenOrders, getRecentFills, getExternalPositions, getAllMarketTicks }) => {
+    ({
+      getAllVPs,
+      getOpenOrders,
+      getRecentFills,
+      getExternalPositions,
+      getAllMarketTicks,
+      getConsistencyStatuses,
+    }) => {
+      const consistency = getConsistencyStatuses();
+      const reconcile: Record<string, Record<string, string>> = {};
+      for (const s of consistency) {
+        if (!reconcile[s.account_id]) reconcile[s.account_id] = {};
+        reconcile[s.account_id][`${s.symbol}_${s.positionSide}`] = s.status;
+      }
+
       const snapshot = {
         virtual_positions: getAllVPs(),
         open_orders: getOpenOrders(),
         recent_fills: getRecentFills(),
         external_positions: getExternalPositions(),
         market: getAllMarketTicks(),
+        consistency,
+        reconcile,
       };
       const event: WsEvent = { type: 'STATE_SNAPSHOT', payload: snapshot, ts: Date.now() };
       if (socket.readyState === 1) socket.send(JSON.stringify(event));
